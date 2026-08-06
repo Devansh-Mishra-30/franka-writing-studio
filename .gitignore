@@ -35,3 +35,6 @@ artifacts/
 *.tmp
 *.temp
 *.log
+
+# Local environment audit evidence
+audit_logs/

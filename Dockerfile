@@ -1,34 +1,69 @@
-# Use an official Ubuntu 20.04 LTS as a parent image
 FROM ubuntu:24.04
 
-# Set noninteractive to avoid prompts during the build
 ARG DEBIAN_FRONTEND=noninteractive
 
+# Install operating-system dependencies only.
+# Python packages will be isolated inside /opt/venv.
 RUN apt-get update && \
-    apt-get upgrade -y  && \
-    apt-get install -y \
-    curl \
-    python3-pip \
-	build-essential \
-	libglew2.2 \
-	libpython3.12-dev \
-	nano \
-	python3-numpy \
-	python3-yaml \
-	python3-tk \
-	&& rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-venv \
+        python3-dev \
+        build-essential \
+        ca-certificates \
+        ffmpeg \
+        libgl1 \
+        libglu1-mesa \
+        libglew2.2 \
+        libglib2.0-0 \
+        libsm6 \
+        libx11-6 \
+        libxext6 \
+        libxrender1 \
+        python3-tk \
+    && rm -rf /var/lib/apt/lists/*
 
+# Create an isolated Python environment.
+RUN python3 -m venv /opt/venv
 
-# Install python packages (WARNING: Only use break-system-packages in container!!!!)
-RUN pip install --break-system-packages \
-    pin\
-    pybullet\
-	matplotlib\
-	scipy
+# Make the virtual environment's Python and pip the default.
+ENV PATH="/opt/venv/bin:${PATH}"
 
-WORKDIR /workspace/
+# Upgrade packaging tools before installing project dependencies.
+RUN python -m pip install --no-cache-dir --upgrade \
+        pip \
+        setuptools \
+        wheel
 
-# Set the default command to execute
-# When creating a container, this will simulate `docker run -it`
+# Copy only the dependency list first.
+# This allows Docker to cache dependency installation separately from source code.
+COPY requirements.lock /tmp/requirements.lock
+
+# Install all Python dependencies inside the virtual environment.
+RUN python -m pip install --no-cache-dir \
+        -r /tmp/requirements.lock
+
+# Fail the image build immediately if a required dependency cannot import.
+RUN python - <<'PY'
+import importlib
+
+modules = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "pybullet",
+    "pybullet_data",
+    "pinocchio",
+    "imageio",
+    "imageio_ffmpeg",
+]
+
+for module_name in modules:
+    importlib.import_module(module_name)
+    print(f"[PASS] imported {module_name}")
+PY
+
+WORKDIR /workspace
+
 CMD ["bash"]
-

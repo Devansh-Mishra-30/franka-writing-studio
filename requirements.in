@@ -1,0 +1,7 @@
+numpy
+scipy
+matplotlib
+pybullet
+pin
+imageio
+imageio-ffmpeg
