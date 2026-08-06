@@ -1,5 +1,5 @@
 import numpy as np
-from PandaMechanics import PandaMechanics
+from franka_mechanics import FrankaMechanics
 
 def PD(q:np.array, dq:np.array, q_des:np.array):
     """
@@ -44,7 +44,7 @@ def PD_gravity(q:np.array, dq:np.array, q_des:np.array):
     Kp = np.array([1000.0, 1000.0, 900.0, 1000.0, 1000.0, 1000.0, 0])
     Kd = np.array([20, 20, 20, 20, 10, 10, 0])
     
-    panda_mech = PandaMechanics()
+    panda_mech = FrankaMechanics()
     G = panda_mech.get_G(q)
 
     e = q - q_des
@@ -67,7 +67,7 @@ def CLF_QP_with_error(q: np.array, dq: np.array, q_des: np.array, dq_des: np.arr
     - Fz: Desired force in the Z direction
     - J: Jacobian of the end effector
     """
-    panda_mech = PandaMechanics()
+    panda_mech = FrankaMechanics()
     M = panda_mech.get_M(q)
     C = panda_mech.get_C(q, dq)
     G = panda_mech.get_G(q)

@@ -147,7 +147,6 @@ def scale_coords_to_arena(coords, dx=dx , dy=dy, x_min=x_min, z_min=z_min):
     xscaled = xscaled - np.min(xscaled) + x_min
     zscaled = zdesigned + z_min
     scaled_coords = np.vstack((xscaled,yscaled,zscaled)).transpose()
-    print(scaled_coords)
     return scaled_coords
     
     
