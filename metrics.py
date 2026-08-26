@@ -58,7 +58,7 @@ def summarize_values(
 def build_experiment_summary(
     *,
     position_errors_m: Sequence[float],
-    joint_errors_rad: Sequence[float],
+    joint_errors_rad: Sequence[float] | None = None,
     loop_durations_s: Sequence[float],
     ik_durations_s: Sequence[float],
     timestep_s: float,
@@ -78,10 +78,14 @@ def build_experiment_summary(
 
     sequence_lengths = {
         steps,
-        len(joint_errors_rad),
         len(loop_durations_s),
         len(ik_durations_s),
     }
+
+    if joint_errors_rad is not None:
+        sequence_lengths.add(
+            len(joint_errors_rad)
+        )
 
     if len(sequence_lengths) != 1:
         raise ValueError(
@@ -95,7 +99,7 @@ def build_experiment_summary(
 
     simulated_duration_s = steps * timestep_s
 
-    return {
+    summary = {
         "execution": {
             "steps": steps,
             "timestep_s": float(timestep_s),
@@ -111,10 +115,6 @@ def build_experiment_summary(
             position_errors_m,
             name="position_errors_m",
         ),
-        "joint_position_error_norm_rad": summarize_values(
-            joint_errors_rad,
-            name="joint_errors_rad",
-        ),
         "loop_duration_s": summarize_values(
             loop_durations_s,
             name="loop_durations_s",
@@ -124,3 +124,13 @@ def build_experiment_summary(
             name="ik_durations_s",
         ),
     }
+
+    if joint_errors_rad is not None:
+        summary[
+            "joint_position_error_norm_rad"
+        ] = summarize_values(
+            joint_errors_rad,
+            name="joint_errors_rad",
+        )
+
+    return summary

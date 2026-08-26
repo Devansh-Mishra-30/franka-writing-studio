@@ -20,8 +20,9 @@ class RobotState:
     joint_positions_rad: FloatArray
     joint_velocities_rad_s: FloatArray
 
-    # This is currently fer_link8, not yet the physical pen tip.
+    # Pose of fer_link8 in the world frame.
     tool_position_m: FloatArray
+    tool_rotation_matrix: FloatArray
 
 
 @dataclass(frozen=True)

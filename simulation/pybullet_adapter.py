@@ -363,6 +363,30 @@ class PyBulletAdapter:
             physicsClientId=client_id,
         )
 
+    def has_robot_table_collision(
+        self,
+    ) -> bool:
+        """Return whether robot geometry contacts the writing surface."""
+
+        client_id, robot_id = self._require_robot()
+
+        if self.table_id is None:
+            raise RuntimeError(
+                "Writing surface has not been loaded"
+            )
+
+        p.performCollisionDetection(
+            physicsClientId=client_id
+        )
+
+        contacts = p.getContactPoints(
+            bodyA=robot_id,
+            bodyB=self.table_id,
+            physicsClientId=client_id,
+        )
+
+        return bool(contacts)
+
     def read_state(
         self,
         simulation_time_s: float,
@@ -403,6 +427,15 @@ class PyBulletAdapter:
             dtype=float,
         )
 
+        tool_quaternion = link_state[5]
+
+        tool_rotation = np.asarray(
+            p.getMatrixFromQuaternion(
+                tool_quaternion
+            ),
+            dtype=float,
+        ).reshape(3, 3)
+
         return RobotState(
             simulation_time_s=float(
                 simulation_time_s
@@ -410,6 +443,7 @@ class PyBulletAdapter:
             joint_positions_rad=joint_positions,
             joint_velocities_rad_s=joint_velocities,
             tool_position_m=tool_position,
+            tool_rotation_matrix=tool_rotation,
         )
 
     def apply_velocity_command(

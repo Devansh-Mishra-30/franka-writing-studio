@@ -290,6 +290,45 @@ class FrankaMechanics:
             dtype=float,
         ).reshape(self.model.nq)
 
+    def get_tool_rotation(
+        self,
+        q: np.ndarray,
+    ) -> np.ndarray:
+        """Return tool orientation in the world frame."""
+
+        q_array = np.asarray(
+            q,
+            dtype=float,
+        )
+
+        if q_array.shape != (7,):
+            raise ValueError(
+                "q must have shape (7,)"
+            )
+
+        if not np.all(np.isfinite(q_array)):
+            raise ValueError(
+                "q contains invalid values"
+            )
+
+        pin.forwardKinematics(
+            self.model,
+            self.data,
+            q_array,
+        )
+
+        pin.updateFramePlacements(
+            self.model,
+            self.data,
+        )
+
+        return (
+            self.data.oMf[
+                self.tool_frame_id
+            ]
+            .rotation.copy()
+        )
+
     def get_jacobian(
         self,
         q: np.ndarray,

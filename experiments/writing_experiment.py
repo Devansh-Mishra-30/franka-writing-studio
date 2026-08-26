@@ -9,7 +9,9 @@ from typing import Any
 
 import numpy as np
 
-from controller import PD_velocity
+from differential_ik import (
+    solve_pose_differential_ik,
+)
 from experiment_config import ExperimentConfig
 from logging_utils import (
     prepare_output_directory,
@@ -21,23 +23,30 @@ from metrics import (
     summarize_values,
 )
 from franka_mechanics import FrankaMechanics
+from pen_tip_kinematics import (
+    PEN_TIP_OFFSET_TOOL_M,
+    legacy_positions_to_pen_tip,
+    pen_tip_jacobian,
+    pen_tip_position,
+)
 from simulation.interfaces import VelocityCommand
 from simulation.pybullet_adapter import (
     PyBulletAdapter,
     PyBulletSettings,
 )
 from trajectory import SvgTrajectory
+from writing_plan import TimedWritingPlan
 
 
 INITIAL_JOINT_POSITIONS_RAD = np.array(
     [
-        0.0,
-        -0.785,
-        0.0,
-        -2.355,
-        0.0,
-        1.57,
-        0.785,
+        0.23081834,
+        -0.69476370,
+        -0.12918779,
+        -2.02518342,
+        -0.08491880,
+        1.33535219,
+        0.11158610,
     ],
     dtype=float,
 )
@@ -60,12 +69,16 @@ class WritingExperiment:
         config: ExperimentConfig,
     ) -> None:
         self.config = config.validate()
+
         self.mechanics = FrankaMechanics()
+
         self.trajectory = SvgTrajectory(
             self.config.svg_file
         )
 
     def run(self) -> ExperimentResult:
+        """Run one finite writing experiment."""
+
         output_dir = prepare_output_directory(
             self.config.output_dir
         )
@@ -84,10 +97,16 @@ class WritingExperiment:
         simulator = PyBulletAdapter(settings)
 
         rows: list[dict[str, Any]] = []
+
         simulator_position_errors_m: list[float] = []
         model_position_errors_m: list[float] = []
-        model_simulator_disagreements_m: list[float] = []
-        joint_errors_rad: list[float] = []
+
+        model_simulator_disagreements_m: list[
+            float
+        ] = []
+
+        orientation_errors_rad: list[float] = []
+
         loop_durations_s: list[float] = []
         ik_durations_s: list[float] = []
 
@@ -98,12 +117,73 @@ class WritingExperiment:
 
         try:
             simulator.configure()
+
             simulator.reset(
                 INITIAL_JOINT_POSITIONS_RAD
             )
 
+            if simulator.has_robot_table_collision():
+                raise RuntimeError(
+                    "Initial robot configuration "
+                    "collides with writing surface"
+                )
+
+            initial_state = simulator.read_state(
+                0.0
+            )
+
+            initial_tool_position_m = np.asarray(
+                initial_state.tool_position_m,
+                dtype=float,
+            )
+
+            initial_tool_rotation = np.asarray(
+                initial_state.tool_rotation_matrix,
+                dtype=float,
+            )
+
+            initial_pen_tip_position_m = (
+                pen_tip_position(
+                    tool_position_m=(
+                        initial_tool_position_m
+                    ),
+                    tool_rotation=(
+                        initial_tool_rotation
+                    ),
+                )
+            )
+
+            desired_rotation = (
+                self.mechanics.get_tool_rotation(
+                    INITIAL_JOINT_POSITIONS_RAD
+                )
+            )
+
+            pen_tip_waypoints_m = (
+                legacy_positions_to_pen_tip(
+                    self.trajectory.positions_m
+                )
+            )
+
+            write_height_m = float(
+                np.min(
+                    pen_tip_waypoints_m[:, 2]
+                )
+            )
+
+            writing_plan = TimedWritingPlan(
+                initial_position_m=(
+                    initial_pen_tip_position_m
+                ),
+                svg_positions_m=(
+                    pen_tip_waypoints_m
+                ),
+                write_height_m=write_height_m,
+            )
+
             setup_duration_s = (
-                time.perf_counter() - setup_start
+                time.perf_counter()
+                - setup_start
             )
 
             run_start = time.perf_counter()
@@ -111,7 +191,9 @@ class WritingExperiment:
             for step_index in range(
                 self.config.num_steps
             ):
-                cycle_start = time.perf_counter()
+                cycle_start = (
+                    time.perf_counter()
+                )
 
                 simulation_time_s = (
                     step_index
@@ -122,73 +204,199 @@ class WritingExperiment:
                     simulation_time_s
                 )
 
-                q = state.joint_positions_rad
-                dq = state.joint_velocities_rad_s
-
-                desired_pose = self.trajectory.sample(
-                    simulation_time_s
+                q = np.asarray(
+                    state.joint_positions_rad,
+                    dtype=float,
                 )
+
+                dq = np.asarray(
+                    state.joint_velocities_rad_s,
+                    dtype=float,
+                )
+
+                writing_setpoint = (
+                    writing_plan.sample(
+                        simulation_time_s
+                    )
+                )
+
+                desired_position_m = np.asarray(
+                    writing_setpoint.position_m,
+                    dtype=float,
+                )
+
+                desired_velocity_m_s = np.asarray(
+                    writing_setpoint.velocity_m_s,
+                    dtype=float,
+                )
+
+                # ------------------------------
+                # PyBullet tool + pen-tip state
+                # ------------------------------
+
+                simulator_tool_position_m = (
+                    np.asarray(
+                        state.tool_position_m,
+                        dtype=float,
+                    )
+                )
+
+                simulator_tool_rotation = (
+                    np.asarray(
+                        state.tool_rotation_matrix,
+                        dtype=float,
+                    )
+                )
+
+                simulator_pen_tip_position_m = (
+                    pen_tip_position(
+                        tool_position_m=(
+                            simulator_tool_position_m
+                        ),
+                        tool_rotation=(
+                            simulator_tool_rotation
+                        ),
+                    )
+                )
+
+                # ------------------------------
+                # Pinocchio tool + pen-tip state
+                # ------------------------------
 
                 model_pose = np.asarray(
                     self.mechanics.solve_fk(q),
                     dtype=float,
                 )
 
-                ik_start = time.perf_counter()
-
-                q_desired = np.asarray(
-                    self.mechanics.solve_ik(
-                        q=q.copy(),
-                        x=float(desired_pose[0]),
-                        y=float(desired_pose[1]),
-                        z=float(desired_pose[2]),
-                    ),
-                    dtype=float,
+                model_tool_position_m = (
+                    model_pose[:3]
                 )
 
-                ik_duration_s = (
-                    time.perf_counter() - ik_start
+                model_tool_rotation = (
+                    self.mechanics.get_tool_rotation(
+                        q
+                    )
+                )
+
+                model_pen_tip_position_m = (
+                    pen_tip_position(
+                        tool_position_m=(
+                            model_tool_position_m
+                        ),
+                        tool_rotation=(
+                            model_tool_rotation
+                        ),
+                    )
+                )
+
+                # ------------------------------
+                # Pen-tip Jacobian
+                # ------------------------------
+
+                tool_jacobian = (
+                    self.mechanics.get_jacobian(
+                        q
+                    )
+                )
+
+                tip_jacobian = (
+                    pen_tip_jacobian(
+                        tool_jacobian=(
+                            tool_jacobian
+                        ),
+                        tool_rotation=(
+                            model_tool_rotation
+                        ),
+                    )
+                )
+
+                # ------------------------------
+                # 6D resolved-rate IK
+                # ------------------------------
+
+                ik_start = time.perf_counter()
+
+                differential_ik_result = (
+                    solve_pose_differential_ik(
+                        jacobian=tip_jacobian,
+                        current_position_m=(
+                            simulator_pen_tip_position_m
+                        ),
+                        desired_position_m=(
+                            desired_position_m
+                        ),
+                        desired_linear_velocity_m_s=(
+                            desired_velocity_m_s
+                        ),
+                        current_rotation=(
+                            simulator_tool_rotation
+                        ),
+                        desired_rotation=(
+                            desired_rotation
+                        ),
+                        desired_angular_velocity_rad_s=(
+                            np.zeros(3)
+                        ),
+                        position_gain_s_inv=4.0,
+                        orientation_gain_s_inv=4.0,
+                        damping=0.02,
+                    )
                 )
 
                 velocity_command = np.asarray(
-                    PD_velocity(
-                        q,
-                        dq,
-                        q_desired,
-                    ),
+                    differential_ik_result
+                    .joint_velocity_rad_s,
                     dtype=float,
                 )
 
-                desired_position_m = desired_pose[:3]
-                model_position_m = model_pose[:3]
-                simulator_position_m = (
-                    state.tool_position_m
+                velocity_limits = np.asarray(
+                    self.mechanics
+                    .joint_velocity_limits,
+                    dtype=float,
                 )
+
+                velocity_command = np.clip(
+                    velocity_command,
+                    -velocity_limits,
+                    velocity_limits,
+                )
+
+                ik_duration_s = (
+                    time.perf_counter()
+                    - ik_start
+                )
+
+                # ------------------------------
+                # Metrics
+                # ------------------------------
 
                 simulator_error_m = float(
                     np.linalg.norm(
-                        simulator_position_m
+                        simulator_pen_tip_position_m
                         - desired_position_m
                     )
                 )
 
                 model_error_m = float(
                     np.linalg.norm(
-                        model_position_m
+                        model_pen_tip_position_m
                         - desired_position_m
                     )
                 )
 
-                model_simulator_disagreement_m = float(
-                    np.linalg.norm(
-                        model_position_m
-                        - simulator_position_m
+                model_simulator_disagreement_m = (
+                    float(
+                        np.linalg.norm(
+                            model_pen_tip_position_m
+                            - simulator_pen_tip_position_m
+                        )
                     )
                 )
 
-                joint_error_rad = float(
+                orientation_error_rad = float(
                     np.linalg.norm(
-                        q_desired - q
+                        differential_ik_result
+                        .orientation_error_rad
                     )
                 )
 
@@ -217,45 +425,76 @@ class WritingExperiment:
                     )
 
                     if sleep_duration_s > 0.0:
-                        time.sleep(sleep_duration_s)
+                        time.sleep(
+                            sleep_duration_s
+                        )
+
+                # ------------------------------
+                # Logging
+                # ------------------------------
 
                 row: dict[str, Any] = {
                     "step": step_index,
                     "simulation_time_s": (
                         simulation_time_s
                     ),
-                    "trajectory_index": (
-                        self.trajectory.index_at(
-                            simulation_time_s
-                        )
+                    "writing_phase": (
+                        writing_setpoint.phase.name
                     ),
-                    "desired_x_m": float(
+                    "writing_segment_index": (
+                        writing_setpoint.segment_index
+                    ),
+
+                    "desired_pen_x_m": float(
                         desired_position_m[0]
                     ),
-                    "desired_y_m": float(
+                    "desired_pen_y_m": float(
                         desired_position_m[1]
                     ),
-                    "desired_z_m": float(
+                    "desired_pen_z_m": float(
                         desired_position_m[2]
                     ),
-                    "simulator_x_m": float(
-                        simulator_position_m[0]
+
+                    "desired_pen_vx_m_s": float(
+                        desired_velocity_m_s[0]
                     ),
-                    "simulator_y_m": float(
-                        simulator_position_m[1]
+                    "desired_pen_vy_m_s": float(
+                        desired_velocity_m_s[1]
                     ),
-                    "simulator_z_m": float(
-                        simulator_position_m[2]
+                    "desired_pen_vz_m_s": float(
+                        desired_velocity_m_s[2]
                     ),
-                    "model_x_m": float(
-                        model_position_m[0]
+
+                    "simulator_pen_x_m": float(
+                        simulator_pen_tip_position_m[0]
                     ),
-                    "model_y_m": float(
-                        model_position_m[1]
+                    "simulator_pen_y_m": float(
+                        simulator_pen_tip_position_m[1]
                     ),
-                    "model_z_m": float(
-                        model_position_m[2]
+                    "simulator_pen_z_m": float(
+                        simulator_pen_tip_position_m[2]
                     ),
+
+                    "model_pen_x_m": float(
+                        model_pen_tip_position_m[0]
+                    ),
+                    "model_pen_y_m": float(
+                        model_pen_tip_position_m[1]
+                    ),
+                    "model_pen_z_m": float(
+                        model_pen_tip_position_m[2]
+                    ),
+
+                    "tool_x_m": float(
+                        simulator_tool_position_m[0]
+                    ),
+                    "tool_y_m": float(
+                        simulator_tool_position_m[1]
+                    ),
+                    "tool_z_m": float(
+                        simulator_tool_position_m[2]
+                    ),
+
                     "simulator_position_error_m": (
                         simulator_error_m
                     ),
@@ -265,10 +504,14 @@ class WritingExperiment:
                     "model_simulator_disagreement_m": (
                         model_simulator_disagreement_m
                     ),
-                    "joint_error_norm_rad": (
-                        joint_error_rad
+
+                    "orientation_error_rad": (
+                        orientation_error_rad
                     ),
-                    "ik_duration_s": ik_duration_s,
+
+                    "ik_duration_s": (
+                        ik_duration_s
+                    ),
                     "loop_duration_s": (
                         loop_duration_s
                     ),
@@ -280,61 +523,78 @@ class WritingExperiment:
                 for joint_index in range(
                     simulator.joint_count
                 ):
-                    joint_number = joint_index + 1
+                    joint_number = (
+                        joint_index + 1
+                    )
 
                     row[
                         f"q{joint_number}_rad"
-                    ] = float(q[joint_index])
+                    ] = float(
+                        q[joint_index]
+                    )
 
                     row[
                         f"dq{joint_number}_rad_s"
-                    ] = float(dq[joint_index])
-
-                    row[
-                        f"q{joint_number}_desired_rad"
                     ] = float(
-                        q_desired[joint_index]
+                        dq[joint_index]
                     )
 
                     row[
                         f"dq{joint_number}_command_rad_s"
                     ] = float(
-                        velocity_command[joint_index]
+                        velocity_command[
+                            joint_index
+                        ]
                     )
 
                 rows.append(row)
+
                 simulator_position_errors_m.append(
                     simulator_error_m
                 )
+
                 model_position_errors_m.append(
                     model_error_m
                 )
+
                 model_simulator_disagreements_m.append(
                     model_simulator_disagreement_m
                 )
-                joint_errors_rad.append(
-                    joint_error_rad
+
+                orientation_errors_rad.append(
+                    orientation_error_rad
                 )
+
                 loop_durations_s.append(
                     loop_duration_s
                 )
+
                 ik_durations_s.append(
                     ik_duration_s
                 )
 
             wall_duration_s = (
-                time.perf_counter() - run_start
+                time.perf_counter()
+                - run_start
             )
 
             summary = build_experiment_summary(
                 position_errors_m=(
                     simulator_position_errors_m
                 ),
-                joint_errors_rad=joint_errors_rad,
-                loop_durations_s=loop_durations_s,
-                ik_durations_s=ik_durations_s,
-                timestep_s=self.config.timestep_s,
-                wall_duration_s=wall_duration_s,
+                joint_errors_rad=None,
+                loop_durations_s=(
+                    loop_durations_s
+                ),
+                ik_durations_s=(
+                    ik_durations_s
+                ),
+                timestep_s=(
+                    self.config.timestep_s
+                ),
+                wall_duration_s=(
+                    wall_duration_s
+                ),
             )
 
             deadline_miss_count = sum(
@@ -344,20 +604,80 @@ class WritingExperiment:
             )
 
             summary["status"] = "completed"
+
             summary["config"] = (
                 self.config.to_dict()
             )
+
             summary["trajectory"] = (
                 self.trajectory.metadata()
             )
 
+            summary["writing_plan"] = {
+                "type": (
+                    "minimum_jerk_pen_tip_plan"
+                ),
+                "number_of_segments": len(
+                    writing_plan.segments
+                ),
+                "total_duration_s": float(
+                    writing_plan.total_duration_s
+                ),
+                "write_height_m": (
+                    write_height_m
+                ),
+                "initial_pen_tip_position_m": (
+                    initial_pen_tip_position_m
+                    .tolist()
+                ),
+            }
+
+            summary["pen_tip"] = {
+                "offset_tool_m": (
+                    PEN_TIP_OFFSET_TOOL_M
+                    .tolist()
+                ),
+                "controlled_frame": (
+                    "virtual_pen_tip"
+                ),
+                "parent_frame": (
+                    "fer_link8"
+                ),
+            }
+
+            summary["controller"] = {
+                "type": (
+                    "pose_differential_ik_pen_tip"
+                ),
+                "position_gain_s_inv": 4.0,
+                "orientation_gain_s_inv": 4.0,
+                "damping": 0.02,
+                "orientation_reference": (
+                    "collision_free_home_orientation"
+                ),
+                "joint_velocity_limits": (
+                    "official_urdf"
+                ),
+            }
+
+            summary[
+                "orientation_error_norm_rad"
+            ] = summarize_values(
+                orientation_errors_rad,
+                name="orientation_errors_rad",
+            )
+
             summary["execution"][
                 "setup_duration_s"
-            ] = float(setup_duration_s)
+            ] = float(
+                setup_duration_s
+            )
 
             summary["execution"][
                 "deadline_miss_count"
-            ] = int(deadline_miss_count)
+            ] = int(
+                deadline_miss_count
+            )
 
             summary["execution"][
                 "deadline_miss_rate"
@@ -367,43 +687,46 @@ class WritingExperiment:
             )
 
             summary[
-                "franka_pinocchio_position_error_m"
+                "pinocchio_pen_tip_position_error_m"
             ] = summarize_values(
                 model_position_errors_m,
-                name="model_position_errors_m",
+                name=(
+                    "model_position_errors_m"
+                ),
             )
 
             summary[
-                "pinocchio_pybullet_disagreement_m"
+                "pinocchio_pybullet_pen_tip_disagreement_m"
             ] = summarize_values(
                 model_simulator_disagreements_m,
                 name=(
-                    "model_simulator_disagreements_m"
+                    "model_simulator_"
+                    "disagreements_m"
                 ),
             )
 
             summary["warnings"] = [
                 (
-                    "The measured tool frame is fer_link8, "
-                    "not yet the physical pen tip."
+                    "The pen tip is currently a "
+                    "virtual fixed-offset task frame; "
+                    "explicit pen collision geometry "
+                    "has not yet been added."
                 ),
                 (
-                    "The legacy IK solver does not yet "
-                    "return convergence diagnostics."
-                ),
-                (
-                    "The existing velocity controller "
-                    "and gains are intentionally preserved."
-                ),
-                (
-                    "The SVG trajectory remains "
-                    "piecewise constant at 0.1-second "
-                    "waypoint intervals."
+                    "Writing-force and surface-contact "
+                    "control are not yet enabled."
                 ),
             ]
 
-            write_csv(samples_path, rows)
-            write_json(summary_path, summary)
+            write_csv(
+                samples_path,
+                rows,
+            )
+
+            write_json(
+                summary_path,
+                summary,
+            )
 
             if failure_path.exists():
                 failure_path.unlink()
@@ -416,17 +739,26 @@ class WritingExperiment:
 
         except Exception as error:
             elapsed_s = (
-                time.perf_counter() - setup_start
+                time.perf_counter()
+                - setup_start
             )
 
             write_json(
                 failure_path,
                 {
                     "status": "failed",
-                    "error_type": type(error).__name__,
-                    "error_message": str(error),
-                    "elapsed_s": float(elapsed_s),
-                    "config": self.config.to_dict(),
+                    "error_type": (
+                        type(error).__name__
+                    ),
+                    "error_message": str(
+                        error
+                    ),
+                    "elapsed_s": float(
+                        elapsed_s
+                    ),
+                    "config": (
+                        self.config.to_dict()
+                    ),
                 },
             )
 
