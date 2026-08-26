@@ -55,6 +55,46 @@ def summarize_values(
     }
 
 
+def summarize_signed_values(
+    values: Sequence[float],
+    *,
+    name: str,
+) -> dict[str, float | int]:
+    """Return statistics for a signed scalar signal."""
+
+    array = _validated_vector(
+        values,
+        name=name,
+        nonnegative=False,
+    )
+
+    absolute = np.abs(array)
+
+    return {
+        "count": int(array.size),
+        "mean": float(np.mean(array)),
+        "rms": float(
+            np.sqrt(
+                np.mean(
+                    np.square(array)
+                )
+            )
+        ),
+        "median": float(np.median(array)),
+        "minimum": float(np.min(array)),
+        "maximum": float(np.max(array)),
+        "maximum_absolute": float(
+            np.max(absolute)
+        ),
+        "p05": float(
+            np.percentile(array, 5)
+        ),
+        "p95": float(
+            np.percentile(array, 95)
+        ),
+    }
+
+
 def build_experiment_summary(
     *,
     position_errors_m: Sequence[float],

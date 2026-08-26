@@ -9,7 +9,14 @@ import numpy as np
 import pybullet as p
 import pybullet_data
 
+from contact_dynamics import (
+    DEFAULT_PEN_CONTACT_PARAMETERS,
+)
+from pen_tip_kinematics import (
+    PEN_TIP_OFFSET_TOOL_M,
+)
 from simulation.interfaces import (
+    PenContactState,
     RobotState,
     VelocityCommand,
 )
@@ -30,6 +37,22 @@ FINGER_JOINT_NAMES = (
 )
 
 TOOL_FRAME_NAME = "fer_link8"
+
+PHYSICAL_PEN_URDF = Path(
+    "urdfs/pen_tool_pybullet.urdf"
+)
+
+PEN_RADIUS_M = 0.004
+PEN_LENGTH_M = float(
+    np.linalg.norm(PEN_TIP_OFFSET_TOOL_M)
+)
+
+# Panda finger displacement is measured per finger.
+# A 4 mm displacement on each side gives an
+# approximately 8 mm opening for the 8 mm pen.
+PEN_GRIPPER_JOINT_POSITION_M = (
+    PEN_RADIUS_M
+)
 
 
 @dataclass(frozen=True)
@@ -54,6 +77,8 @@ class PyBulletAdapter:
         self.table_id: int | None = None
         self.plane_id: int | None = None
         self.video_log_id: int | None = None
+        self.pen_id: int | None = None
+        self.pen_constraint_id: int | None = None
 
         self.joint_indices: tuple[int, ...] = ()
         self.finger_joint_indices: tuple[int, ...] = ()
@@ -81,6 +106,12 @@ class PyBulletAdapter:
             raise FileNotFoundError(
                 "Official Franka Hand URDF is missing: "
                 f"{OFFICIAL_FRANKA_HAND_URDF}"
+            )
+
+        if not PHYSICAL_PEN_URDF.is_file():
+            raise FileNotFoundError(
+                "Physical pen URDF is missing: "
+                f"{PHYSICAL_PEN_URDF}"
             )
 
         if self.settings.mode == "direct":
@@ -160,14 +191,30 @@ class PyBulletAdapter:
                 physicsClientId=client_id,
             )
 
+            contact_parameters = (
+                DEFAULT_PEN_CONTACT_PARAMETERS
+            )
+
             p.changeDynamics(
                 bodyUniqueId=self.table_id,
                 linkIndex=-1,
-                lateralFriction=0.1,
+                lateralFriction=(
+                    contact_parameters.lateral_friction
+                ),
+                restitution=0.0,
+                contactStiffness=(
+                    contact_parameters
+                    .pybullet_body_contact_stiffness_n_m
+                ),
+                contactDamping=(
+                    contact_parameters
+                    .pybullet_body_contact_damping_n_s_m
+                ),
                 physicsClientId=client_id,
             )
 
             self._discover_named_structure()
+            self._create_physical_pen()
 
             if self.settings.mode == "gui":
                 p.resetDebugVisualizerCamera(
@@ -338,7 +385,9 @@ class PyBulletAdapter:
                 physicsClientId=client_id,
             )
 
-        finger_position_m = 0.02
+        finger_position_m = (
+            PEN_GRIPPER_JOINT_POSITION_M
+        )
 
         for finger_index in self.finger_joint_indices:
             p.resetJointState(
@@ -362,6 +411,8 @@ class PyBulletAdapter:
             forces=[20.0, 20.0],
             physicsClientId=client_id,
         )
+
+        self._sync_physical_pen_pose()
 
     def has_robot_table_collision(
         self,
@@ -516,6 +567,8 @@ class PyBulletAdapter:
         self.table_id = None
         self.plane_id = None
         self.video_log_id = None
+        self.pen_id = None
+        self.pen_constraint_id = None
 
         self.joint_indices = ()
         self.finger_joint_indices = ()
@@ -523,6 +576,408 @@ class PyBulletAdapter:
         self.arm_velocity_limits = ()
 
         self.tool_link_index = None
+
+    def _create_physical_pen(self) -> None:
+        """Load and rigidly attach the physical pen."""
+
+        client_id, robot_id = self._require_robot()
+
+        if self.pen_id is not None:
+            raise RuntimeError(
+                "Physical pen has already been created"
+            )
+
+        if self.tool_link_index is None:
+            raise RuntimeError(
+                "Tool frame has not been resolved"
+            )
+
+        link_state = p.getLinkState(
+            robot_id,
+            self.tool_link_index,
+            computeForwardKinematics=1,
+            physicsClientId=client_id,
+        )
+
+        tool_position = link_state[4]
+        tool_orientation = link_state[5]
+
+        self.pen_id = p.loadURDF(
+            str(PHYSICAL_PEN_URDF),
+            basePosition=tool_position,
+            baseOrientation=tool_orientation,
+            useFixedBase=False,
+            physicsClientId=client_id,
+        )
+
+        contact_parameters = (
+            DEFAULT_PEN_CONTACT_PARAMETERS
+        )
+
+        p.changeDynamics(
+            self.pen_id,
+            -1,
+            lateralFriction=(
+                contact_parameters.lateral_friction
+            ),
+            spinningFriction=0.0,
+            rollingFriction=0.0,
+            restitution=0.0,
+            contactStiffness=(
+                contact_parameters
+                .pybullet_body_contact_stiffness_n_m
+            ),
+            contactDamping=(
+                contact_parameters
+                .pybullet_body_contact_damping_n_s_m
+            ),
+            physicsClientId=client_id,
+        )
+
+        # --------------------------------------------------
+        # PyBullet constraint frames are expressed relative
+        # to the center-of-mass frames.
+        #
+        # We want:
+        #
+        #     pen link origin == fer_link8 origin
+        #
+        # so convert each URDF link origin into its
+        # corresponding COM-frame coordinates.
+        # --------------------------------------------------
+
+        parent_dynamics = p.getDynamicsInfo(
+            robot_id,
+            self.tool_link_index,
+            physicsClientId=client_id,
+        )
+
+        child_dynamics = p.getDynamicsInfo(
+            self.pen_id,
+            -1,
+            physicsClientId=client_id,
+        )
+
+        parent_inertial_position = (
+            parent_dynamics[3]
+        )
+        parent_inertial_orientation = (
+            parent_dynamics[4]
+        )
+
+        child_inertial_position = (
+            child_dynamics[3]
+        )
+        child_inertial_orientation = (
+            child_dynamics[4]
+        )
+
+        (
+            parent_frame_position,
+            parent_frame_orientation,
+        ) = p.invertTransform(
+            parent_inertial_position,
+            parent_inertial_orientation,
+        )
+
+        (
+            child_frame_position,
+            child_frame_orientation,
+        ) = p.invertTransform(
+            child_inertial_position,
+            child_inertial_orientation,
+        )
+
+        self.pen_constraint_id = p.createConstraint(
+            parentBodyUniqueId=robot_id,
+            parentLinkIndex=self.tool_link_index,
+            childBodyUniqueId=self.pen_id,
+            childLinkIndex=-1,
+            jointType=p.JOINT_FIXED,
+            jointAxis=[0.0, 0.0, 0.0],
+            parentFramePosition=(
+                parent_frame_position
+            ),
+            childFramePosition=(
+                child_frame_position
+            ),
+            parentFrameOrientation=(
+                parent_frame_orientation
+            ),
+            childFrameOrientation=(
+                child_frame_orientation
+            ),
+            physicsClientId=client_id,
+        )
+
+        p.changeConstraint(
+            self.pen_constraint_id,
+            maxForce=1000.0,
+            physicsClientId=client_id,
+        )
+
+        # The pen visually passes between the fingers.
+        # Because it is modeled as a rigidly mounted tool,
+        # disable pen/robot collision pairs.
+        #
+        # Pen/table collision remains ENABLED.
+        total_robot_joints = p.getNumJoints(
+            robot_id,
+            physicsClientId=client_id,
+        )
+
+        for robot_link_index in range(
+            -1,
+            total_robot_joints,
+        ):
+            p.setCollisionFilterPair(
+                robot_id,
+                self.pen_id,
+                robot_link_index,
+                -1,
+                enableCollision=0,
+                physicsClientId=client_id,
+            )
+
+        self._sync_physical_pen_pose()
+
+    def _sync_physical_pen_pose(self) -> None:
+        """Align the pen link origin exactly with fer_link8.
+
+        This is used only after explicit robot resets.
+        During normal simulation the fixed constraint owns
+        the pen motion.
+        """
+
+        if self.pen_id is None:
+            return
+
+        client_id, robot_id = self._require_robot()
+
+        if self.tool_link_index is None:
+            raise RuntimeError(
+                "Tool frame has not been resolved"
+            )
+
+        link_state = p.getLinkState(
+            robot_id,
+            self.tool_link_index,
+            computeForwardKinematics=1,
+            physicsClientId=client_id,
+        )
+
+        tool_position = link_state[4]
+        tool_orientation = link_state[5]
+
+        dynamics = p.getDynamicsInfo(
+            self.pen_id,
+            -1,
+            physicsClientId=client_id,
+        )
+
+        local_inertial_position = dynamics[3]
+        local_inertial_orientation = dynamics[4]
+
+        # Desired world COM pose:
+        #
+        # T_WI = T_WL * T_LI
+        #
+        # where L is the pen link frame and I is its
+        # inertial/center-of-mass frame.
+        (
+            com_position,
+            com_orientation,
+        ) = p.multiplyTransforms(
+            tool_position,
+            tool_orientation,
+            local_inertial_position,
+            local_inertial_orientation,
+        )
+
+        p.resetBasePositionAndOrientation(
+            self.pen_id,
+            com_position,
+            com_orientation,
+            physicsClientId=client_id,
+        )
+
+    def _read_physical_pen_link_pose(
+        self,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return physical pen link pose in world coordinates."""
+
+        if self.pen_id is None:
+            raise RuntimeError(
+                "Physical pen has not been created"
+            )
+
+        if self.client_id is None:
+            raise RuntimeError(
+                "PyBullet adapter is not configured"
+            )
+
+        (
+            com_position,
+            com_orientation,
+        ) = p.getBasePositionAndOrientation(
+            self.pen_id,
+            physicsClientId=self.client_id,
+        )
+
+        dynamics = p.getDynamicsInfo(
+            self.pen_id,
+            -1,
+            physicsClientId=self.client_id,
+        )
+
+        local_inertial_position = dynamics[3]
+        local_inertial_orientation = dynamics[4]
+
+        (
+            inertial_to_link_position,
+            inertial_to_link_orientation,
+        ) = p.invertTransform(
+            local_inertial_position,
+            local_inertial_orientation,
+        )
+
+        (
+            link_position,
+            link_orientation,
+        ) = p.multiplyTransforms(
+            com_position,
+            com_orientation,
+            inertial_to_link_position,
+            inertial_to_link_orientation,
+        )
+
+        rotation = np.asarray(
+            p.getMatrixFromQuaternion(
+                link_orientation
+            ),
+            dtype=float,
+        ).reshape(3, 3)
+
+        return (
+            np.asarray(
+                link_position,
+                dtype=float,
+            ),
+            rotation,
+        )
+
+    def read_pen_tip_position(
+        self,
+    ) -> np.ndarray:
+        """Return physical pen-tip position in world coordinates."""
+
+        (
+            pen_position,
+            pen_rotation,
+        ) = self._read_physical_pen_link_pose()
+
+        return (
+            pen_position
+            + pen_rotation
+            @ PEN_TIP_OFFSET_TOOL_M
+        )
+
+    def get_pen_table_contacts(
+        self,
+    ) -> tuple:
+        """Return current physical pen/table contacts."""
+
+        if self.pen_id is None:
+            raise RuntimeError(
+                "Physical pen has not been created"
+            )
+
+        if self.table_id is None:
+            raise RuntimeError(
+                "Writing surface has not been loaded"
+            )
+
+        if self.client_id is None:
+            raise RuntimeError(
+                "PyBullet adapter is not configured"
+            )
+
+        contacts = p.getContactPoints(
+            bodyA=self.pen_id,
+            bodyB=self.table_id,
+            physicsClientId=self.client_id,
+        )
+
+        return tuple(contacts)
+
+    def read_pen_contact_state(
+        self,
+    ) -> PenContactState:
+        """Return physical pen/writing-surface contact state."""
+
+        contacts = (
+            self.get_pen_table_contacts()
+        )
+
+        if not contacts:
+            return PenContactState(
+                active=False,
+                contact_count=0,
+                minimum_distance_m=None,
+                normal_force_n=0.0,
+            )
+
+        minimum_distance_m = min(
+            float(contact[8])
+            for contact in contacts
+        )
+
+        normal_force_n = sum(
+            max(
+                0.0,
+                float(contact[9]),
+            )
+            for contact in contacts
+        )
+
+        return PenContactState(
+            active=True,
+            contact_count=len(contacts),
+            minimum_distance_m=float(
+                minimum_distance_m
+            ),
+            normal_force_n=float(
+                normal_force_n
+            ),
+        )
+
+    def has_pen_table_contact(
+        self,
+    ) -> bool:
+        """Return whether the physical pen contacts the table."""
+
+        return bool(
+            self.get_pen_table_contacts()
+        )
+
+    def read_pen_normal_force_n(
+        self,
+    ) -> float:
+        """Return total normal pen/table contact force."""
+
+        contacts = (
+            self.get_pen_table_contacts()
+        )
+
+        return float(
+            sum(
+                max(
+                    0.0,
+                    float(contact[9]),
+                )
+                for contact in contacts
+            )
+        )
 
     def _require_robot(
         self,

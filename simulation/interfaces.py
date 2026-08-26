@@ -14,9 +14,10 @@ FloatArray = NDArray[np.float64]
 
 @dataclass(frozen=True)
 class RobotState:
-    """Timestamped robot state returned by a simulator."""
+    """Robot state exposed by a simulator."""
 
     simulation_time_s: float
+
     joint_positions_rad: FloatArray
     joint_velocities_rad_s: FloatArray
 
@@ -26,38 +27,61 @@ class RobotState:
 
 
 @dataclass(frozen=True)
+class PenContactState:
+    """Physical pen/writing-surface contact state."""
+
+    active: bool
+
+    contact_count: int
+
+    # Minimum PyBullet contact distance.
+    #
+    # Negative values indicate penetration.
+    # None means no contact exists.
+    minimum_distance_m: float | None
+
+    # Sum of normal forces across all pen/table contacts.
+    normal_force_n: float
+
+
+@dataclass(frozen=True)
 class VelocityCommand:
-    """Joint-velocity command sent to a simulator."""
+    """Joint-velocity command."""
 
     joint_velocities_rad_s: FloatArray
 
 
 class SimulatorInterface(Protocol):
-    """Minimal interface required by robot experiments."""
+    """Interface required by the writing experiment."""
 
     def configure(self) -> None:
-        """Connect, configure physics, and load models."""
+        ...
 
     def reset(
         self,
         joint_positions_rad: FloatArray,
     ) -> None:
-        """Reset the simulated robot state."""
+        ...
 
     def read_state(
         self,
         simulation_time_s: float,
     ) -> RobotState:
-        """Read the current timestamped robot state."""
+        ...
+
+    def read_pen_contact_state(
+        self,
+    ) -> PenContactState:
+        ...
 
     def apply_velocity_command(
         self,
         command: VelocityCommand,
     ) -> None:
-        """Apply one joint-velocity command."""
+        ...
 
     def step(self) -> None:
-        """Advance physics by one configured timestep."""
+        ...
 
     def shutdown(self) -> None:
-        """Release simulator resources."""
+        ...

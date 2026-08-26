@@ -9,8 +9,15 @@ from typing import Any
 
 import numpy as np
 
+from contact_dynamics import (
+    DEFAULT_PEN_CONTACT_PARAMETERS,
+    apply_write_preload,
+)
 from differential_ik import (
     solve_pose_differential_ik,
+)
+from force_control import (
+    compute_normal_force_velocity,
 )
 from experiment_config import ExperimentConfig
 from logging_utils import (
@@ -20,6 +27,7 @@ from logging_utils import (
 )
 from metrics import (
     build_experiment_summary,
+    summarize_signed_values,
     summarize_values,
 )
 from franka_mechanics import FrankaMechanics
@@ -110,6 +118,16 @@ class WritingExperiment:
         loop_durations_s: list[float] = []
         ik_durations_s: list[float] = []
 
+        pen_normal_forces_n: list[float] = []
+        pen_contact_distances_m: list[float] = []
+        physical_tip_disagreements_m: list[float] = []
+
+        xy_tracking_errors_m: list[float] = []
+        write_force_errors_n: list[float] = []
+        force_correction_velocities_m_s: list[float] = []
+
+        force_control_saturation_count = 0
+
         np.random.seed(self.config.seed)
 
         setup_start = time.perf_counter()
@@ -159,9 +177,29 @@ class WritingExperiment:
                 )
             )
 
-            pen_tip_waypoints_m = (
+            nominal_pen_tip_waypoints_m = (
                 legacy_positions_to_pen_tip(
                     self.trajectory.positions_m
+                )
+            )
+
+            contact_parameters = (
+                DEFAULT_PEN_CONTACT_PARAMETERS
+            )
+
+            nominal_write_height_m = float(
+                np.min(
+                    nominal_pen_tip_waypoints_m[:, 2]
+                )
+            )
+
+            pen_tip_waypoints_m = (
+                apply_write_preload(
+                    nominal_pen_tip_waypoints_m,
+                    nominal_write_height_m=(
+                        nominal_write_height_m
+                    ),
+                    parameters=contact_parameters,
                 )
             )
 
@@ -202,6 +240,14 @@ class WritingExperiment:
 
                 state = simulator.read_state(
                     simulation_time_s
+                )
+
+                pen_contact_state = (
+                    simulator.read_pen_contact_state()
+                )
+
+                physical_pen_tip_position_m = (
+                    simulator.read_pen_tip_position()
                 )
 
                 q = np.asarray(
@@ -259,6 +305,13 @@ class WritingExperiment:
                     )
                 )
 
+                physical_tip_disagreement_m = float(
+                    np.linalg.norm(
+                        physical_pen_tip_position_m
+                        - simulator_pen_tip_position_m
+                    )
+                )
+
                 # ------------------------------
                 # Pinocchio tool + pen-tip state
                 # ------------------------------
@@ -311,6 +364,77 @@ class WritingExperiment:
                 )
 
                 # ------------------------------
+                # Hybrid Cartesian control
+                #
+                # APPROACH / LOWER / LIFT / TRANSFER:
+                #   XYZ position + orientation control.
+                #
+                # WRITE:
+                #   XY position control
+                #   Z normal-force control
+                #   orientation control
+                # ------------------------------
+
+                controller_position_m = (
+                    desired_position_m.copy()
+                )
+
+                controller_velocity_m_s = (
+                    desired_velocity_m_s.copy()
+                )
+
+                force_control_active = (
+                    writing_setpoint.phase.name
+                    == "WRITE"
+                )
+
+                force_control_result = None
+
+                if force_control_active:
+                    measured_force_n = float(
+                        pen_contact_state.normal_force_n
+                    )
+
+                    if (
+                        measured_force_n
+                        > contact_parameters
+                        .maximum_normal_force_n
+                    ):
+                        raise RuntimeError(
+                            "Pen normal force exceeded "
+                            "safety limit: "
+                            f"{measured_force_n:.6f} N > "
+                            f"{contact_parameters.maximum_normal_force_n:.6f} N"
+                        )
+
+                    force_control_result = (
+                        compute_normal_force_velocity(
+                            measured_normal_force_n=(
+                                measured_force_n
+                            ),
+                            parameters=(
+                                contact_parameters
+                            ),
+                        )
+                    )
+
+                    # Remove Z position feedback.
+                    #
+                    # Setting desired Z to current Z makes:
+                    #
+                    #     e_z = z_d - z = 0
+                    #
+                    # so Z motion comes from force control.
+                    controller_position_m[2] = (
+                        simulator_pen_tip_position_m[2]
+                    )
+
+                    controller_velocity_m_s[2] = (
+                        force_control_result
+                        .commanded_world_z_velocity_m_s
+                    )
+
+                # ------------------------------
                 # 6D resolved-rate IK
                 # ------------------------------
 
@@ -323,10 +447,10 @@ class WritingExperiment:
                             simulator_pen_tip_position_m
                         ),
                         desired_position_m=(
-                            desired_position_m
+                            controller_position_m
                         ),
                         desired_linear_velocity_m_s=(
-                            desired_velocity_m_s
+                            controller_velocity_m_s
                         ),
                         current_rotation=(
                             simulator_tool_rotation
@@ -374,6 +498,13 @@ class WritingExperiment:
                     np.linalg.norm(
                         simulator_pen_tip_position_m
                         - desired_position_m
+                    )
+                )
+
+                xy_tracking_error_m = float(
+                    np.linalg.norm(
+                        simulator_pen_tip_position_m[:2]
+                        - desired_position_m[:2]
                     )
                 )
 
@@ -485,6 +616,76 @@ class WritingExperiment:
                         model_pen_tip_position_m[2]
                     ),
 
+                    "physical_pen_x_m": float(
+                        physical_pen_tip_position_m[0]
+                    ),
+                    "physical_pen_y_m": float(
+                        physical_pen_tip_position_m[1]
+                    ),
+                    "physical_pen_z_m": float(
+                        physical_pen_tip_position_m[2]
+                    ),
+
+                    "physical_tip_disagreement_m": (
+                        physical_tip_disagreement_m
+                    ),
+
+                    "pen_contact_active": int(
+                        pen_contact_state.active
+                    ),
+                    "pen_contact_count": int(
+                        pen_contact_state.contact_count
+                    ),
+                    "pen_contact_distance_m": (
+                        pen_contact_state.minimum_distance_m
+                    ),
+                    "pen_normal_force_n": float(
+                        pen_contact_state.normal_force_n
+                    ),
+
+                    "desired_pen_normal_force_n": float(
+                        contact_parameters.desired_normal_force_n
+                    ),
+
+                    "force_control_active": int(
+                        force_control_active
+                    ),
+
+                    "force_error_n": (
+                        float(
+                            force_control_result.force_error_n
+                        )
+                        if force_control_result is not None
+                        else None
+                    ),
+
+                    "force_correction_velocity_m_s": (
+                        float(
+                            force_control_result
+                            .commanded_world_z_velocity_m_s
+                        )
+                        if force_control_result is not None
+                        else 0.0
+                    ),
+
+                    "force_control_saturated": int(
+                        force_control_result.saturated
+                        if force_control_result is not None
+                        else False
+                    ),
+
+                    "controller_pen_z_target_m": float(
+                        controller_position_m[2]
+                    ),
+
+                    "controller_pen_vz_m_s": float(
+                        controller_velocity_m_s[2]
+                    ),
+
+                    "xy_tracking_error_m": (
+                        xy_tracking_error_m
+                    ),
+
                     "tool_x_m": float(
                         simulator_tool_position_m[0]
                     ),
@@ -573,6 +774,47 @@ class WritingExperiment:
                     ik_duration_s
                 )
 
+                pen_normal_forces_n.append(
+                    float(
+                        pen_contact_state.normal_force_n
+                    )
+                )
+
+                physical_tip_disagreements_m.append(
+                    physical_tip_disagreement_m
+                )
+
+                xy_tracking_errors_m.append(
+                    xy_tracking_error_m
+                )
+
+                if force_control_result is not None:
+                    write_force_errors_n.append(
+                        float(
+                            force_control_result.force_error_n
+                        )
+                    )
+
+                    force_correction_velocities_m_s.append(
+                        float(
+                            force_control_result
+                            .commanded_world_z_velocity_m_s
+                        )
+                    )
+
+                    if force_control_result.saturated:
+                        force_control_saturation_count += 1
+
+                if (
+                    pen_contact_state.minimum_distance_m
+                    is not None
+                ):
+                    pen_contact_distances_m.append(
+                        float(
+                            pen_contact_state.minimum_distance_m
+                        )
+                    )
+
             wall_duration_s = (
                 time.perf_counter()
                 - run_start
@@ -623,8 +865,14 @@ class WritingExperiment:
                 "total_duration_s": float(
                     writing_plan.total_duration_s
                 ),
-                "write_height_m": (
+                "nominal_surface_height_m": (
+                    nominal_write_height_m
+                ),
+                "commanded_write_height_m": (
                     write_height_m
+                ),
+                "preload_depth_m": (
+                    contact_parameters.preload_depth_m
                 ),
                 "initial_pen_tip_position_m": (
                     initial_pen_tip_position_m
@@ -645,9 +893,34 @@ class WritingExperiment:
                 ),
             }
 
+            summary["contact_model"] = {
+                "type": "kelvin_voigt_unilateral",
+                "surface_height_m": (
+                    contact_parameters.surface_height_m
+                ),
+                "desired_normal_force_n": (
+                    contact_parameters.desired_normal_force_n
+                ),
+                "preload_depth_m": (
+                    contact_parameters.preload_depth_m
+                ),
+                "contact_stiffness_n_m": (
+                    contact_parameters.contact_stiffness_n_m
+                ),
+                "contact_damping_n_s_m": (
+                    contact_parameters.contact_damping_n_s_m
+                ),
+                "lateral_friction": (
+                    contact_parameters.lateral_friction
+                ),
+                "maximum_normal_force_n": (
+                    contact_parameters.maximum_normal_force_n
+                ),
+            }
+
             summary["controller"] = {
                 "type": (
-                    "pose_differential_ik_pen_tip"
+                    "hybrid_xy_position_z_force_pose_control"
                 ),
                 "position_gain_s_inv": 4.0,
                 "orientation_gain_s_inv": 4.0,
@@ -658,6 +931,27 @@ class WritingExperiment:
                 "joint_velocity_limits": (
                     "official_urdf"
                 ),
+                "write_control": {
+                    "xy": "cartesian_position",
+                    "z": "normal_force_admittance",
+                    "orientation": "pose_hold",
+                    "desired_normal_force_n": (
+                        contact_parameters
+                        .desired_normal_force_n
+                    ),
+                    "force_velocity_gain_m_s_n": (
+                        contact_parameters
+                        .force_velocity_gain_m_s_n
+                    ),
+                    "maximum_force_correction_velocity_m_s": (
+                        contact_parameters
+                        .maximum_force_correction_velocity_m_s
+                    ),
+                    "maximum_normal_force_n": (
+                        contact_parameters
+                        .maximum_normal_force_n
+                    ),
+                },
             }
 
             summary[
@@ -705,16 +999,106 @@ class WritingExperiment:
                 ),
             )
 
+            contact_rows = [
+                row
+                for row in rows
+                if int(row["pen_contact_active"]) == 1
+            ]
+
+            write_rows = [
+                row
+                for row in rows
+                if row["writing_phase"] == "WRITE"
+            ]
+
+            write_contact_rows = [
+                row
+                for row in write_rows
+                if int(row["pen_contact_active"]) == 1
+            ]
+
+            summary["hybrid_control"] = {
+                "xy_tracking_error_m": (
+                    summarize_values(
+                        xy_tracking_errors_m,
+                        name="xy_tracking_errors_m",
+                    )
+                ),
+                "write_force_error_n": (
+                    summarize_signed_values(
+                        write_force_errors_n,
+                        name="write_force_errors_n",
+                    )
+                    if write_force_errors_n
+                    else None
+                ),
+                "force_correction_velocity_m_s": (
+                    summarize_signed_values(
+                        force_correction_velocities_m_s,
+                        name=(
+                            "force_correction_velocities_m_s"
+                        ),
+                    )
+                    if force_correction_velocities_m_s
+                    else None
+                ),
+                "force_control_saturation_count": int(
+                    force_control_saturation_count
+                ),
+            }
+
+            summary["physical_pen"] = {
+                "tip_tracking_disagreement_m": (
+                    summarize_values(
+                        physical_tip_disagreements_m,
+                        name=(
+                            "physical_tip_disagreements_m"
+                        ),
+                    )
+                ),
+                "contact": {
+                    "active_sample_count": len(
+                        contact_rows
+                    ),
+                    "overall_contact_rate": (
+                        len(contact_rows) / len(rows)
+                        if rows
+                        else 0.0
+                    ),
+                    "write_contact_sample_count": len(
+                        write_contact_rows
+                    ),
+                    "write_contact_rate": (
+                        len(write_contact_rows)
+                        / len(write_rows)
+                        if write_rows
+                        else 0.0
+                    ),
+                    "normal_force_n": (
+                        summarize_values(
+                            pen_normal_forces_n,
+                            name="pen_normal_forces_n",
+                        )
+                    ),
+                    "minimum_contact_distance_m": (
+                        min(pen_contact_distances_m)
+                        if pen_contact_distances_m
+                        else None
+                    ),
+                },
+            }
+
             summary["warnings"] = [
                 (
-                    "The pen tip is currently a "
-                    "virtual fixed-offset task frame; "
-                    "explicit pen collision geometry "
-                    "has not yet been added."
+                    "The physical pen is rigidly attached "
+                    "to fer_link8 and contact force is "
+                    "measured, but force regulation is "
+                    "not yet enabled."
                 ),
                 (
-                    "Writing-force and surface-contact "
-                    "control are not yet enabled."
+                    "Writing currently uses Cartesian "
+                    "pose control; impedance/contact-force "
+                    "control is the next controller stage."
                 ),
             ]
 
