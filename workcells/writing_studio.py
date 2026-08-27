@@ -4,20 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from simulation.scene import BoxGeometry
 from workcells.base import WorkcellSpec
-
-
-@dataclass(frozen=True)
-class BoxGeometry:
-    """Simple box-shaped workcell object."""
-
-    name: str
-    size_m: tuple[float, float, float]
-    center_m: tuple[float, float, float]
-
-    @property
-    def top_height_m(self) -> float:
-        return self.center_m[2] + 0.5 * self.size_m[2]
 
 
 @dataclass(frozen=True)

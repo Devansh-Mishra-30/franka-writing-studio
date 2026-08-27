@@ -49,6 +49,7 @@ from simulation.pybullet_adapter import (
 )
 from trajectory import SvgTrajectory
 from writing_plan import TimedWritingPlan
+from workcells import WRITING_STUDIO
 
 
 INITIAL_JOINT_POSITIONS_RAD = np.array(
@@ -116,6 +117,8 @@ class WritingExperiment:
             mode=self.config.mode,
             timestep_s=self.config.timestep_s,
             output_dir=output_dir,
+            desk_geometry=WRITING_STUDIO.desk,
+            writing_surface_geometry=WRITING_STUDIO.notebook,
             record_video=self.config.record_video,
         )
 

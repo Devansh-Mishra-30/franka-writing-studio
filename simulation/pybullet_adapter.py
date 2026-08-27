@@ -20,7 +20,7 @@ from simulation.interfaces import (
     RobotState,
     VelocityCommand,
 )
-from workcells import BoxGeometry, WRITING_STUDIO
+from simulation.scene import BoxGeometry
 
 
 OFFICIAL_FRANKA_HAND_URDF = Path(
@@ -61,6 +61,8 @@ class PyBulletSettings:
     mode: str
     timestep_s: float
     output_dir: Path
+    desk_geometry: BoxGeometry
+    writing_surface_geometry: BoxGeometry
     record_video: bool = False
 
 
@@ -229,12 +231,12 @@ class PyBulletAdapter:
             )
 
             self.desk_id = self._create_box_body(
-                WRITING_STUDIO.desk,
+                self.settings.desk_geometry,
                 rgba=(0.45, 0.25, 0.10, 1.0),
             )
 
             self.writing_surface_id = self._create_box_body(
-                WRITING_STUDIO.notebook,
+                self.settings.writing_surface_geometry,
                 rgba=(0.92, 0.92, 0.88, 1.0),
             )
 

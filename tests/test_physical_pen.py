@@ -11,6 +11,7 @@ from simulation.pybullet_adapter import (
     PyBulletAdapter,
     PyBulletSettings,
 )
+from workcells import WRITING_STUDIO
 
 
 Q_HOME = np.array(
@@ -34,6 +35,8 @@ class PhysicalPenTests(unittest.TestCase):
                 mode="direct",
                 timestep_s=0.001,
                 output_dir="artifacts/test",
+                desk_geometry=WRITING_STUDIO.desk,
+                writing_surface_geometry=WRITING_STUDIO.notebook,
             )
         )
 
