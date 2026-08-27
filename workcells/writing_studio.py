@@ -1,0 +1,55 @@
+"""Interactive Franka writing workcell definition."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from workcells.base import WorkcellSpec
+
+
+@dataclass(frozen=True)
+class BoxGeometry:
+    """Simple box-shaped workcell object."""
+
+    name: str
+    size_m: tuple[float, float, float]
+    center_m: tuple[float, float, float]
+
+    @property
+    def top_height_m(self) -> float:
+        return self.center_m[2] + 0.5 * self.size_m[2]
+
+
+@dataclass(frozen=True)
+class WritingStudioWorkcell(WorkcellSpec):
+    """Desk and notebook setup for interactive writing."""
+
+    desk: BoxGeometry = BoxGeometry(
+        name="writing_desk",
+        size_m=(0.90, 0.70, 0.040),
+        center_m=(0.45, 0.0, 0.489),
+    )
+
+    notebook: BoxGeometry = BoxGeometry(
+        name="notebook",
+        size_m=(0.42, 0.30, 0.016),
+        center_m=(0.45, 0.0, 0.517),
+    )
+
+    pen_holder_position_m: tuple[float, float, float] = (
+        0.28,
+        -0.24,
+        0.535,
+    )
+
+
+WRITING_STUDIO = WritingStudioWorkcell(
+    name="writing_studio",
+    robot_name="franka",
+    tool_name="pen",
+    objects=(
+        "writing_desk",
+        "notebook",
+        "pen_holder",
+    ),
+)
