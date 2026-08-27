@@ -20,6 +20,7 @@ from simulation.interfaces import (
     RobotState,
     VelocityCommand,
 )
+from workcells import BoxGeometry, WRITING_STUDIO
 
 
 OFFICIAL_FRANKA_HAND_URDF = Path(
@@ -74,7 +75,8 @@ class PyBulletAdapter:
 
         self.client_id: int | None = None
         self.robot_id: int | None = None
-        self.table_id: int | None = None
+        self.desk_id: int | None = None
+        self.writing_surface_id: int | None = None
         self.plane_id: int | None = None
         self.video_log_id: int | None = None
         self.pen_id: int | None = None
@@ -89,12 +91,55 @@ class PyBulletAdapter:
         self.tool_frame_name = TOOL_FRAME_NAME
 
     @property
+    def table_id(self) -> int | None:
+        """Compatibility alias for the notebook contact surface."""
+        return self.writing_surface_id
+
+    @property
     def joint_count(self) -> int:
         return len(self.joint_indices)
 
     @property
     def arm_joint_names(self) -> tuple[str, ...]:
         return ARM_JOINT_NAMES
+
+    def _create_box_body(
+        self,
+        geometry: BoxGeometry,
+        rgba: tuple[float, float, float, float],
+    ) -> int:
+        """Create a fixed box body from workcell configuration."""
+
+        if self.client_id is None:
+            raise RuntimeError(
+                "PyBullet client is unavailable"
+            )
+
+        half_extents = [
+            0.5 * dimension
+            for dimension in geometry.size_m
+        ]
+
+        collision_shape = p.createCollisionShape(
+            p.GEOM_BOX,
+            halfExtents=half_extents,
+            physicsClientId=self.client_id,
+        )
+
+        visual_shape = p.createVisualShape(
+            p.GEOM_BOX,
+            halfExtents=half_extents,
+            rgbaColor=rgba,
+            physicsClientId=self.client_id,
+        )
+
+        return p.createMultiBody(
+            baseMass=0.0,
+            baseCollisionShapeIndex=collision_shape,
+            baseVisualShapeIndex=visual_shape,
+            basePosition=geometry.center_m,
+            physicsClientId=self.client_id,
+        )
 
     def configure(self) -> None:
         if self.client_id is not None:
@@ -183,12 +228,14 @@ class PyBulletAdapter:
                 physicsClientId=client_id,
             )
 
-            self.table_id = p.loadURDF(
-                "urdfs/writing_surface_pybullet.urdf",
-                [0.45, 0.0, 0.0],
-                orientation,
-                useFixedBase=True,
-                physicsClientId=client_id,
+            self.desk_id = self._create_box_body(
+                WRITING_STUDIO.desk,
+                rgba=(0.45, 0.25, 0.10, 1.0),
+            )
+
+            self.writing_surface_id = self._create_box_body(
+                WRITING_STUDIO.notebook,
+                rgba=(0.92, 0.92, 0.88, 1.0),
             )
 
             contact_parameters = (
@@ -196,7 +243,7 @@ class PyBulletAdapter:
             )
 
             p.changeDynamics(
-                bodyUniqueId=self.table_id,
+                bodyUniqueId=self.writing_surface_id,
                 linkIndex=-1,
                 lateralFriction=(
                     contact_parameters.lateral_friction
@@ -421,7 +468,12 @@ class PyBulletAdapter:
 
         client_id, robot_id = self._require_robot()
 
-        if self.table_id is None:
+        if self.desk_id is None:
+            raise RuntimeError(
+                "Writing desk has not been loaded"
+            )
+
+        if self.writing_surface_id is None:
             raise RuntimeError(
                 "Writing surface has not been loaded"
             )
@@ -430,13 +482,20 @@ class PyBulletAdapter:
             physicsClientId=client_id
         )
 
-        contacts = p.getContactPoints(
-            bodyA=robot_id,
-            bodyB=self.table_id,
-            physicsClientId=client_id,
-        )
+        for body_id in (
+            self.desk_id,
+            self.writing_surface_id,
+        ):
+            contacts = p.getContactPoints(
+                bodyA=robot_id,
+                bodyB=body_id,
+                physicsClientId=client_id,
+            )
 
-        return bool(contacts)
+            if contacts:
+                return True
+
+        return False
 
     def read_state(
         self,
@@ -564,7 +623,8 @@ class PyBulletAdapter:
 
         self.client_id = None
         self.robot_id = None
-        self.table_id = None
+        self.desk_id = None
+        self.writing_surface_id = None
         self.plane_id = None
         self.video_log_id = None
         self.pen_id = None
@@ -892,7 +952,7 @@ class PyBulletAdapter:
                 "Physical pen has not been created"
             )
 
-        if self.table_id is None:
+        if self.writing_surface_id is None:
             raise RuntimeError(
                 "Writing surface has not been loaded"
             )
@@ -904,7 +964,7 @@ class PyBulletAdapter:
 
         contacts = p.getContactPoints(
             bodyA=self.pen_id,
-            bodyB=self.table_id,
+            bodyB=self.writing_surface_id,
             physicsClientId=self.client_id,
         )
 
