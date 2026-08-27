@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -197,8 +197,17 @@ class WritingExperiment:
                 )
             )
 
-            contact_parameters = (
-                DEFAULT_PEN_CONTACT_PARAMETERS
+            contact_parameters = replace(
+                DEFAULT_PEN_CONTACT_PARAMETERS,
+                surface_height_m=(
+                    WRITING_STUDIO.notebook.top_height_m
+                ),
+                surface_center_x_m=(
+                    WRITING_STUDIO.notebook.center_m[0]
+                ),
+                surface_center_y_m=(
+                    WRITING_STUDIO.notebook.center_m[1]
+                ),
             )
 
             nominal_pen_tip_waypoints_m = (
