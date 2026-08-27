@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+IMAGE="${WR_IMAGE:-writing-robot:dev}"
+
+die() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
+image_exists() {
+    docker image inspect "$IMAGE" >/dev/null 2>&1
+}
+
+build_image() {
+    echo "==> Building $IMAGE"
+    docker build -t "$IMAGE" "$ROOT"
+}
+
+ensure_image() {
+    if ! image_exists; then
+        echo "==> Docker image '$IMAGE' not found."
+        build_image
+    fi
+}
+
+docker_run() {
+    ensure_image
+
+    docker run --rm -i \
+        -u "$(id -u):$(id -g)" \
+        -e HOME=/tmp \
+        -v "$ROOT":/workspace \
+        -w /workspace \
+        "$IMAGE" \
+        "$@"
+}
+
+docker_run_tty() {
+    ensure_image
+
+    docker run --rm -it \
+        -u "$(id -u):$(id -g)" \
+        -e HOME=/tmp \
+        -v "$ROOT":/workspace \
+        -w /workspace \
+        "$IMAGE" \
+        "$@"
+}
+
+run_phase4() {
+    echo "==> Exporting Pinocchio verification data"
+    docker_run python3 -m verification.export_matlab_reference
+
+    command -v wslpath >/dev/null 2>&1 \
+        || die "Phase 4 MATLAB launcher currently expects WSL."
+
+    MATLAB_EXE="/mnt/c/Program Files/MATLAB/R2024a/bin/matlab.exe"
+
+    [[ -x "$MATLAB_EXE" ]] \
+        || die "MATLAB executable not found at: $MATLAB_EXE"
+
+    WIN_REPO="$(wslpath -w "$ROOT")"
+
+    echo "==> Running independent MATLAB verification"
+    "$MATLAB_EXE" \
+        -batch "cd('$WIN_REPO'); run('verification/verify_with_matlab.m')"
+}
+
+run_phase5() {
+    echo "==> Running randomized controlled model mismatch"
+    docker_run python3 -m verification.model_mismatch_experiment
+
+    echo
+    echo "==> Running mismatch on validated writing trajectory"
+    docker_run python3 -m verification.writing_model_mismatch
+}
+
+run_phase6() {
+    echo "==> Training and evaluating residual dynamics model"
+    docker_run python3 -m learning.residual_ridge
+}
+
+run_gui() {
+    ensure_image
+
+    docker run --rm -it \
+        -u "$(id -u):$(id -g)" \
+        -e HOME=/tmp \
+        -e DISPLAY="${DISPLAY:-}" \
+        -e WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+        -e XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
+        -v "$ROOT":/workspace \
+        -v /tmp/.X11-unix:/tmp/.X11-unix \
+        -w /workspace \
+        "$IMAGE" \
+        python3 -m ui.live_command_center
+}
+
+show_help() {
+    cat <<EOF
+Franka Workcell Launcher
+
+Usage:
+  ./wr <command>
+
+Commands:
+  build       Build/update Docker development image
+  rebuild     Force clean Docker rebuild
+  test        Run pytest suite
+  shell       Open interactive development shell
+  ui          Launch interactive command center
+  phase4      Run Python -> MATLAB independent verification
+  phase5      Generate controlled model-mismatch datasets
+  phase6      Train/evaluate learned residual dynamics model
+  status      Show Docker image and Git status
+  help        Show this help
+
+Environment:
+  WR_IMAGE    Override Docker image name
+              default: writing-robot:dev
+
+Examples:
+  ./wr build
+  ./wr test
+  ./wr ui
+  ./wr phase6
+EOF
+}
+
+COMMAND="${1:-help}"
+
+case "$COMMAND" in
+    build)
+        build_image
+        ;;
+
+    rebuild)
+        echo "==> Rebuilding $IMAGE without cache"
+        docker build --no-cache -t "$IMAGE" "$ROOT"
+        ;;
+
+    test)
+        docker_run python3 -m pytest -q
+        ;;
+
+    shell)
+        docker_run_tty bash
+        ;;
+
+    ui)
+        run_gui
+        ;;
+
+    phase4)
+        run_phase4
+        ;;
+
+    phase5)
+        run_phase5
+        ;;
+
+    phase6)
+        run_phase6
+        ;;
+
+    status)
+        echo "Repository: $ROOT"
+        echo "Image:      $IMAGE"
+
+        if image_exists; then
+            echo "Docker:     READY"
+        else
+            echo "Docker:     NOT BUILT"
+        fi
+
+        echo
+        git -C "$ROOT" status --short --branch
+        ;;
+
+    help|-h|--help)
+        show_help
+        ;;
+
+    *)
+        die "Unknown command '$COMMAND'. Run ./wr help."
+        ;;
+esac
