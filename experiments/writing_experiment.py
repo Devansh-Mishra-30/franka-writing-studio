@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -80,8 +80,20 @@ class WritingExperiment:
     def __init__(
         self,
         config: ExperimentConfig,
+        telemetry_callback: (
+            Callable[[dict[str, Any]], None] | None
+        ) = None,
+        telemetry_period_s: float = 0.05,
     ) -> None:
         self.config = config.validate()
+
+        if telemetry_period_s <= 0.0:
+            raise ValueError(
+                "telemetry_period_s must be positive"
+            )
+
+        self.telemetry_callback = telemetry_callback
+        self.telemetry_period_s = telemetry_period_s
 
         self.mechanics = FrankaMechanics()
 
@@ -285,6 +297,12 @@ class WritingExperiment:
             )
 
             run_start = time.perf_counter()
+
+            next_telemetry_time_s = 0.0
+
+            # Used only for dynamics telemetry.
+            # This does not modify the controller.
+            previous_dq: np.ndarray | None = None
 
             for step_index in range(
                 run_num_steps
@@ -669,6 +687,69 @@ class WritingExperiment:
                 # Logging
                 # ------------------------------
 
+                # -----------------------------
+                # Rigid-body dynamics telemetry.
+                # -----------------------------
+                if previous_dq is None:
+                    dynamics_ddq_estimated_rad_s2 = (
+                        np.zeros(
+                            self.model.nv
+                            if hasattr(self, "model")
+                            else self.mechanics.model.nv,
+                            dtype=float,
+                        )
+                    )
+                else:
+                    dynamics_ddq_estimated_rad_s2 = (
+                        dq - previous_dq
+                    ) / self.config.timestep_s
+
+                previous_dq = dq.copy()
+
+                dynamics_mass_matrix = (
+                    self.mechanics.get_M(q)
+                )
+
+                dynamics_coriolis_matrix = (
+                    self.mechanics.get_C(
+                        q,
+                        dq,
+                    )
+                )
+
+                dynamics_gravity_nm = (
+                    self.mechanics.get_G(q)
+                )
+
+                dynamics_inertia_nm = (
+                    dynamics_mass_matrix
+                    @ dynamics_ddq_estimated_rad_s2
+                )
+
+                dynamics_coriolis_nm = (
+                    dynamics_coriolis_matrix
+                    @ dq
+                )
+
+                dynamics_tau_model_nm = (
+                    dynamics_inertia_nm
+                    + dynamics_coriolis_nm
+                    + dynamics_gravity_nm
+                )
+
+                dynamics_tau_rnea_nm = (
+                    self.mechanics.get_tau(
+                        q,
+                        dq,
+                        dynamics_ddq_estimated_rad_s2,
+                    )
+                )
+
+                dynamics_reconstruction_error_nm = (
+                    dynamics_tau_rnea_nm
+                    - dynamics_tau_model_nm
+                )
+
                 row: dict[str, Any] = {
                     "step": step_index,
                     "simulation_time_s": (
@@ -848,7 +929,96 @@ class WritingExperiment:
                         ]
                     )
 
+                for joint_index in range(
+                    simulator.joint_count
+                ):
+                    joint_number = (
+                        joint_index + 1
+                    )
+
+                    row[
+                        f"ddq{joint_number}_estimated_rad_s2"
+                    ] = float(
+                        dynamics_ddq_estimated_rad_s2[
+                            joint_index
+                        ]
+                    )
+
+                    row[
+                        f"tau{joint_number}_inertia_model_nm"
+                    ] = float(
+                        dynamics_inertia_nm[
+                            joint_index
+                        ]
+                    )
+
+                    row[
+                        f"tau{joint_number}_coriolis_model_nm"
+                    ] = float(
+                        dynamics_coriolis_nm[
+                            joint_index
+                        ]
+                    )
+
+                    row[
+                        f"tau{joint_number}_gravity_model_nm"
+                    ] = float(
+                        dynamics_gravity_nm[
+                            joint_index
+                        ]
+                    )
+
+                    row[
+                        f"tau{joint_number}_inverse_dynamics_model_nm"
+                    ] = float(
+                        dynamics_tau_model_nm[
+                            joint_index
+                        ]
+                    )
+
+                    row[
+                        f"tau{joint_number}_rnea_model_nm"
+                    ] = float(
+                        dynamics_tau_rnea_nm[
+                            joint_index
+                        ]
+                    )
+
+                    row[
+                        f"tau{joint_number}_reconstruction_error_nm"
+                    ] = float(
+                        dynamics_reconstruction_error_nm[
+                            joint_index
+                        ]
+                    )
+
+                row[
+                    "dynamics_reconstruction_error_norm_nm"
+                ] = float(
+                    np.linalg.norm(
+                        dynamics_reconstruction_error_nm
+                    )
+                )
+
                 rows.append(row)
+
+                if (
+                    self.telemetry_callback is not None
+                    and simulation_time_s
+                    + 1.0e-12
+                    >= next_telemetry_time_s
+                ):
+                    self.telemetry_callback(
+                        dict(row)
+                    )
+
+                    while (
+                        next_telemetry_time_s
+                        <= simulation_time_s
+                    ):
+                        next_telemetry_time_s += (
+                            self.telemetry_period_s
+                        )
 
                 simulator_position_errors_m.append(
                     simulator_error_m

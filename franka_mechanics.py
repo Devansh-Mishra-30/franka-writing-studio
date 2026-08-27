@@ -129,6 +129,28 @@ class FrankaMechanics:
 
         return vector
 
+    def _validate_ddq(
+        self,
+        ddq: np.ndarray,
+    ) -> np.ndarray:
+        vector = np.asarray(
+            ddq,
+            dtype=float,
+        )
+
+        if vector.shape != (self.model.nv,):
+            raise ValueError(
+                f"ddq must have shape ({self.model.nv},), "
+                f"received {vector.shape}"
+            )
+
+        if not np.all(np.isfinite(vector)):
+            raise ValueError(
+                "ddq contains NaN or infinite values"
+            )
+
+        return vector
+
     def solve_fk(
         self,
         q: np.ndarray,
@@ -426,4 +448,57 @@ class FrankaMechanics:
                 q,
             ),
             dtype=float,
+        )
+
+
+    def get_tau(
+        self,
+        q: np.ndarray,
+        dq: np.ndarray,
+        ddq: np.ndarray,
+    ) -> np.ndarray:
+        """Return inverse-dynamics joint torques using RNEA.
+
+        Computes the generalized torque required for the supplied
+        configuration, velocity, and acceleration.
+        """
+
+        q = self._validate_q(q)
+        dq = self._validate_dq(dq)
+        ddq = self._validate_ddq(ddq)
+
+        return np.asarray(
+            pin.rnea(
+                self.model,
+                self.data,
+                q,
+                dq,
+                ddq,
+            ),
+            dtype=float,
+        ).reshape(self.model.nv)
+
+    def get_tau_decomposed(
+        self,
+        q: np.ndarray,
+        dq: np.ndarray,
+        ddq: np.ndarray,
+    ) -> np.ndarray:
+        """Reconstruct inverse dynamics as M(q)ddq + C(q,dq)dq + g(q)."""
+
+        q = self._validate_q(q)
+        dq = self._validate_dq(dq)
+        ddq = self._validate_ddq(ddq)
+
+        mass_matrix = self.get_M(q)
+        coriolis_matrix = self.get_C(
+            q,
+            dq,
+        )
+        gravity_torque = self.get_G(q)
+
+        return (
+            mass_matrix @ ddq
+            + coriolis_matrix @ dq
+            + gravity_torque
         )
