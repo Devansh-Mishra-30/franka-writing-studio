@@ -17,7 +17,7 @@ OUTPUT_CSV = OUTPUT_DIR / "model_mismatch_residuals.csv"
 OUTPUT_SUMMARY = OUTPUT_DIR / "summary.json"
 
 SEED = 505
-NUM_STATES = 500
+NUM_STATES = 5000
 PERTURBED_JOINT = "fer_joint4"
 INERTIA_SCALE = 1.15
 
