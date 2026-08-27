@@ -12,6 +12,7 @@ import numpy as np
 from contact_dynamics import (
     DEFAULT_PEN_CONTACT_PARAMETERS,
     apply_write_preload,
+    center_xy_path_on_surface,
 )
 from differential_ik import (
     solve_pose_differential_ik,
@@ -38,6 +39,10 @@ from pen_tip_kinematics import (
     pen_tip_position,
 )
 from simulation.interfaces import VelocityCommand
+from simulation.live_debug_visualizer import (
+    LiveDebugSample,
+    LiveWritingDebugVisualizer,
+)
 from simulation.pybullet_adapter import (
     PyBulletAdapter,
     PyBulletSettings,
@@ -177,14 +182,17 @@ class WritingExperiment:
                 )
             )
 
-            nominal_pen_tip_waypoints_m = (
-                legacy_positions_to_pen_tip(
-                    self.trajectory.positions_m
-                )
-            )
-
             contact_parameters = (
                 DEFAULT_PEN_CONTACT_PARAMETERS
+            )
+
+            nominal_pen_tip_waypoints_m = (
+                center_xy_path_on_surface(
+                    legacy_positions_to_pen_tip(
+                        self.trajectory.positions_m
+                    ),
+                    parameters=contact_parameters,
+                )
             )
 
             nominal_write_height_m = float(
@@ -217,7 +225,59 @@ class WritingExperiment:
                     pen_tip_waypoints_m
                 ),
                 write_height_m=write_height_m,
+                speed_scale=(
+                    self.config.speed_scale
+                ),
             )
+
+            if simulator.client_id is None:
+                raise RuntimeError(
+                    "PyBullet client is unavailable "
+                    "after simulator configuration"
+                )
+
+            live_visualizer = (
+                LiveWritingDebugVisualizer(
+                    client_id=simulator.client_id,
+                    enabled=(
+                        self.config.mode == "gui"
+                    ),
+                    surface_height_m=(
+                        contact_parameters
+                        .surface_height_m
+                    ),
+                    # 40 Hz visualization while
+                    # simulation/control remains
+                    # independently timestep-driven.
+                    update_period_s=0.05,
+                )
+            )
+
+            live_visualizer.draw_reference_path(
+                pen_tip_waypoints_m,
+                total_duration_s=(
+                    writing_plan.total_duration_s
+                ),
+                desired_force_n=(
+                    contact_parameters
+                    .desired_normal_force_n
+                ),
+            )
+
+            if self.config.full_plan:
+                run_num_steps = (
+                    int(
+                        np.ceil(
+                            writing_plan.total_duration_s
+                            / self.config.timestep_s
+                        )
+                    )
+                    + 1
+                )
+            else:
+                run_num_steps = (
+                    self.config.num_steps
+                )
 
             setup_duration_s = (
                 time.perf_counter()
@@ -227,7 +287,7 @@ class WritingExperiment:
             run_start = time.perf_counter()
 
             for step_index in range(
-                self.config.num_steps
+                run_num_steps
             ):
                 cycle_start = (
                     time.perf_counter()
@@ -531,6 +591,51 @@ class WritingExperiment:
                     )
                 )
 
+                force_correction_velocity_m_s = (
+                    float(
+                        force_control_result
+                        .commanded_world_z_velocity_m_s
+                    )
+                    if force_control_result
+                    is not None
+                    else 0.0
+                )
+
+                live_visualizer.update(
+                    LiveDebugSample(
+                        simulation_time_s=(
+                            simulation_time_s
+                        ),
+                        phase=(
+                            writing_setpoint
+                            .phase.name
+                        ),
+                        desired_position_m=(
+                            desired_position_m
+                        ),
+                        actual_position_m=(
+                            physical_pen_tip_position_m
+                        ),
+                        contact_active=(
+                            pen_contact_state.active
+                        ),
+                        normal_force_n=float(
+                            pen_contact_state
+                            .normal_force_n
+                        ),
+                        desired_force_n=float(
+                            contact_parameters
+                            .desired_normal_force_n
+                        ),
+                        xy_tracking_error_m=(
+                            xy_tracking_error_m
+                        ),
+                        force_correction_velocity_m_s=(
+                            force_correction_velocity_m_s
+                        ),
+                    )
+                )
+
                 simulator.apply_velocity_command(
                     VelocityCommand(
                         joint_velocities_rad_s=(
@@ -660,12 +765,7 @@ class WritingExperiment:
                     ),
 
                     "force_correction_velocity_m_s": (
-                        float(
-                            force_control_result
-                            .commanded_world_z_velocity_m_s
-                        )
-                        if force_control_result is not None
-                        else 0.0
+                        force_correction_velocity_m_s
                     ),
 
                     "force_control_saturated": int(
@@ -864,6 +964,15 @@ class WritingExperiment:
                 ),
                 "total_duration_s": float(
                     writing_plan.total_duration_s
+                ),
+                "speed_scale": float(
+                    self.config.speed_scale
+                ),
+                "full_plan": bool(
+                    self.config.full_plan
+                ),
+                "execution_num_steps": int(
+                    run_num_steps
                 ),
                 "nominal_surface_height_m": (
                     nominal_write_height_m

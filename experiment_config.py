@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -18,32 +19,59 @@ class ExperimentConfig:
     mode: str = "direct"
     duration_s: float = 2.0
     timestep_s: float = 0.001
-    svg_file: Path = Path("svg/portfolio_writing1 (8).svg")
-    output_dir: Path = Path("artifacts/baseline")
+    svg_file: Path = Path(
+        "svg/portfolio_writing1 (8).svg"
+    )
+    output_dir: Path = Path(
+        "artifacts/baseline"
+    )
     realtime: bool = False
     record_video: bool = False
     seed: int = 0
 
+    speed_scale: float = 1.0
+    full_plan: bool = False
+
     def validate(self) -> "ExperimentConfig":
         if self.mode not in VALID_MODES:
             raise ValueError(
-                f"mode must be one of {VALID_MODES}; received {self.mode!r}"
+                f"mode must be one of {VALID_MODES}; "
+                f"received {self.mode!r}"
             )
 
-        if self.duration_s <= 0.0:
-            raise ValueError("duration_s must be greater than zero")
+        if (
+            not math.isfinite(self.duration_s)
+            or self.duration_s <= 0.0
+        ):
+            raise ValueError(
+                "duration_s must be finite and positive"
+            )
 
-        if self.timestep_s <= 0.0:
-            raise ValueError("timestep_s must be greater than zero")
+        if (
+            not math.isfinite(self.timestep_s)
+            or self.timestep_s <= 0.0
+        ):
+            raise ValueError(
+                "timestep_s must be finite and positive"
+            )
 
         if self.duration_s < self.timestep_s:
             raise ValueError(
                 "duration_s must be at least one timestep"
             )
 
+        if (
+            not math.isfinite(self.speed_scale)
+            or self.speed_scale <= 0.0
+        ):
+            raise ValueError(
+                "speed_scale must be finite and positive"
+            )
+
         if not self.svg_file.is_file():
             raise FileNotFoundError(
-                f"SVG trajectory file does not exist: {self.svg_file}"
+                "SVG trajectory file does not exist: "
+                f"{self.svg_file}"
             )
 
         if self.record_video and self.mode != "gui":
@@ -55,32 +83,45 @@ class ExperimentConfig:
 
     @property
     def num_steps(self) -> int:
-        """Deterministic number of simulation iterations."""
-
         return max(
             1,
-            int(round(self.duration_s / self.timestep_s)),
+            int(
+                round(
+                    self.duration_s
+                    / self.timestep_s
+                )
+            ),
         )
 
     @property
     def simulated_duration_s(self) -> float:
-        return self.num_steps * self.timestep_s
+        return (
+            self.num_steps
+            * self.timestep_s
+        )
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["svg_file"] = str(self.svg_file)
-        payload["output_dir"] = str(self.output_dir)
+
+        payload["svg_file"] = str(
+            self.svg_file
+        )
+        payload["output_dir"] = str(
+            self.output_dir
+        )
         payload["num_steps"] = self.num_steps
         payload["simulated_duration_s"] = (
             self.simulated_duration_s
         )
+
         return payload
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Run a finite Franka Panda writing-robot experiment."
+            "Run a finite Franka Panda "
+            "writing-robot experiment."
         )
     )
 
@@ -90,13 +131,19 @@ def build_parser() -> argparse.ArgumentParser:
         default="direct",
         help="PyBullet connection mode.",
     )
+
     parser.add_argument(
         "--duration",
         dest="duration_s",
         type=float,
         default=2.0,
-        help="Requested simulation duration in seconds.",
+        help=(
+            "Requested simulation duration in seconds. "
+            "With --full-plan the entire writing plan "
+            "is executed instead."
+        ),
     )
+
     parser.add_argument(
         "--timestep",
         dest="timestep_s",
@@ -104,29 +151,57 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.001,
         help="Physics timestep in seconds.",
     )
+
     parser.add_argument(
         "--svg",
         dest="svg_file",
         type=Path,
-        default=Path("svg/portfolio_writing1 (8).svg"),
+        default=Path(
+            "svg/portfolio_writing1 (8).svg"
+        ),
         help="SVG trajectory file.",
     )
+
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("artifacts/baseline"),
+        default=Path(
+            "artifacts/baseline"
+        ),
         help="Directory for experiment evidence.",
     )
+
     parser.add_argument(
         "--realtime",
         action="store_true",
         help="Throttle simulation toward real time.",
     )
+
     parser.add_argument(
         "--record-video",
         action="store_true",
         help="Record the PyBullet GUI.",
     )
+
+    parser.add_argument(
+        "--speed-scale",
+        type=float,
+        default=1.0,
+        help=(
+            "Multiply all writing-plan motion "
+            "speeds by this factor."
+        ),
+    )
+
+    parser.add_argument(
+        "--full-plan",
+        action="store_true",
+        help=(
+            "Execute the complete writing plan "
+            "instead of stopping at --duration."
+        ),
+    )
+
     parser.add_argument(
         "--seed",
         type=int,
@@ -151,6 +226,8 @@ def parse_config(
         realtime=args.realtime,
         record_video=args.record_video,
         seed=args.seed,
+        speed_scale=args.speed_scale,
+        full_plan=args.full_plan,
     ).validate()
 
 

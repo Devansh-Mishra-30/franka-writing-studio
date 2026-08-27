@@ -11,8 +11,10 @@ import numpy as np
 class PenContactParameters:
     """Physical and control parameters for pen/paper contact."""
 
-    # Writing-surface top plane.
+    # Writing-surface top plane and center.
     surface_height_m: float = 0.525
+    surface_center_x_m: float = 0.45
+    surface_center_y_m: float = 0.0
 
     # Desired normal writing force.
     desired_normal_force_n: float = 1.0
@@ -102,6 +104,65 @@ def kelvin_voigt_normal_force(
         0.0,
         float(force_n),
     )
+
+
+def center_xy_path_on_surface(
+    positions_m: np.ndarray,
+    *,
+    parameters: PenContactParameters = (
+        DEFAULT_PEN_CONTACT_PARAMETERS
+    ),
+) -> np.ndarray:
+    """Center a Cartesian path on the writing surface in XY."""
+
+    positions = np.asarray(
+        positions_m,
+        dtype=float,
+    )
+
+    if (
+        positions.ndim != 2
+        or positions.shape[1] != 3
+    ):
+        raise ValueError(
+            "positions_m must have shape (N, 3)"
+        )
+
+    if positions.shape[0] == 0:
+        raise ValueError(
+            "positions_m must not be empty"
+        )
+
+    result = positions.copy()
+
+    xy_min = np.min(
+        result[:, :2],
+        axis=0,
+    )
+
+    xy_max = np.max(
+        result[:, :2],
+        axis=0,
+    )
+
+    current_center = (
+        0.5 * (xy_min + xy_max)
+    )
+
+    desired_center = np.array(
+        [
+            parameters.surface_center_x_m,
+            parameters.surface_center_y_m,
+        ],
+        dtype=float,
+    )
+
+    result[:, :2] += (
+        desired_center
+        - current_center
+    )
+
+    return result
 
 
 def apply_write_preload(

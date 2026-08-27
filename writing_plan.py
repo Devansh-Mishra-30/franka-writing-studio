@@ -123,6 +123,7 @@ class TimedWritingPlan:
         vertical_speed_m_s: float = 0.05,
         retreat_clearance_m: float = 0.05,
         minimum_duration_s: float = 0.10,
+        speed_scale: float = 1.0,
     ) -> None:
         initial = np.asarray(
             initial_position_m,
@@ -148,6 +149,19 @@ class TimedWritingPlan:
                 "svg_positions_m must have shape (N, 3), N >= 2"
             )
 
+        if (
+            not np.isfinite(speed_scale)
+            or speed_scale <= 0.0
+        ):
+            raise ValueError(
+                "speed_scale must be finite and positive"
+            )
+
+        scaled_minimum_duration_s = (
+            minimum_duration_s
+            / speed_scale
+        )
+
         self._segments: list[CartesianSegment] = []
 
         # 1. Physically move from the robot's actual initial
@@ -162,8 +176,13 @@ class TimedWritingPlan:
                 duration_s=segment_duration(
                     initial,
                     first,
-                    speed_m_s=approach_speed_m_s,
-                    minimum_duration_s=minimum_duration_s,
+                    speed_m_s=(
+                        approach_speed_m_s
+                        * speed_scale
+                    ),
+                    minimum_duration_s=(
+                        scaled_minimum_duration_s
+                    ),
                 ),
             )
         )
@@ -183,11 +202,20 @@ class TimedWritingPlan:
             )
 
             if phase == WritingPhase.WRITE:
-                speed = write_speed_m_s
+                speed = (
+                    write_speed_m_s
+                    * speed_scale
+                )
             elif phase == WritingPhase.TRANSFER:
-                speed = transfer_speed_m_s
+                speed = (
+                    transfer_speed_m_s
+                    * speed_scale
+                )
             else:
-                speed = vertical_speed_m_s
+                speed = (
+                    vertical_speed_m_s
+                    * speed_scale
+                )
 
             self._segments.append(
                 CartesianSegment(
@@ -198,7 +226,9 @@ class TimedWritingPlan:
                         start,
                         end,
                         speed_m_s=speed,
-                        minimum_duration_s=minimum_duration_s,
+                        minimum_duration_s=(
+                        scaled_minimum_duration_s
+                    ),
                     ),
                 )
             )
@@ -217,8 +247,13 @@ class TimedWritingPlan:
                 duration_s=segment_duration(
                     final,
                     retreat,
-                    speed_m_s=vertical_speed_m_s,
-                    minimum_duration_s=minimum_duration_s,
+                    speed_m_s=(
+                        vertical_speed_m_s
+                        * speed_scale
+                    ),
+                    minimum_duration_s=(
+                        scaled_minimum_duration_s
+                    ),
                 ),
             )
         )
