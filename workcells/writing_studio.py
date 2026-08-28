@@ -14,8 +14,8 @@ class WritingStudioWorkcell(WorkcellSpec):
 
     desk: BoxGeometry = BoxGeometry(
         name="writing_desk",
-        size_m=(0.90, 0.70, 0.040),
-        center_m=(0.45, 0.0, 0.489),
+        size_m=(0.70, 0.70, 0.040),
+        center_m=(0.55, 0.0, 0.489),
     )
 
     notebook: BoxGeometry = BoxGeometry(
