@@ -106,6 +106,260 @@ def kelvin_voigt_normal_force(
     )
 
 
+def fit_xy_path_to_surface(
+    positions_m: np.ndarray,
+    *,
+    surface_size_m: tuple[float, float],
+    margin_m: float = 0.02,
+    parameters: PenContactParameters = (
+        DEFAULT_PEN_CONTACT_PARAMETERS
+    ),
+) -> np.ndarray:
+    """Fit an XY path inside a rectangular writing surface.
+
+    The path is uniformly scaled to preserve aspect ratio, centered on
+    the configured surface center, and leaves ``margin_m`` on every
+    side. Z coordinates are left unchanged.
+    """
+
+    positions = np.asarray(
+        positions_m,
+        dtype=float,
+    )
+
+    if (
+        positions.ndim != 2
+        or positions.shape[1] != 3
+    ):
+        raise ValueError(
+            "positions_m must have shape (N, 3)"
+        )
+
+    if positions.shape[0] == 0:
+        raise ValueError(
+            "positions_m must not be empty"
+        )
+
+    if not np.all(np.isfinite(positions)):
+        raise ValueError(
+            "positions_m contains invalid values"
+        )
+
+    surface_size = np.asarray(
+        surface_size_m,
+        dtype=float,
+    )
+
+    if surface_size.shape != (2,):
+        raise ValueError(
+            "surface_size_m must have shape (2,)"
+        )
+
+    if (
+        not np.all(np.isfinite(surface_size))
+        or np.any(surface_size <= 0.0)
+    ):
+        raise ValueError(
+            "surface_size_m must contain positive finite values"
+        )
+
+    if (
+        not np.isfinite(margin_m)
+        or margin_m < 0.0
+    ):
+        raise ValueError(
+            "margin_m must be finite and nonnegative"
+        )
+
+    available_size = (
+        surface_size - 2.0 * margin_m
+    )
+
+    if np.any(available_size <= 0.0):
+        raise ValueError(
+            "margin_m leaves no usable writing area"
+        )
+
+    result = positions.copy()
+
+    xy_min = np.min(
+        result[:, :2],
+        axis=0,
+    )
+
+    xy_max = np.max(
+        result[:, :2],
+        axis=0,
+    )
+
+    span = xy_max - xy_min
+
+    scale_candidates = []
+
+    for dimension in range(2):
+        if span[dimension] > 0.0:
+            scale_candidates.append(
+                available_size[dimension]
+                / span[dimension]
+            )
+
+    scale = (
+        min(scale_candidates)
+        if scale_candidates
+        else 1.0
+    )
+
+    current_center = (
+        0.5 * (xy_min + xy_max)
+    )
+
+    desired_center = np.array(
+        [
+            parameters.surface_center_x_m,
+            parameters.surface_center_y_m,
+        ],
+        dtype=float,
+    )
+
+    result[:, :2] = (
+        desired_center
+        + scale
+        * (
+            result[:, :2]
+            - current_center
+        )
+    )
+
+    return result
+
+
+def fit_xy_path_to_surface(
+    positions_m: np.ndarray,
+    *,
+    surface_size_m: tuple[float, float],
+    margin_m: float = 0.02,
+    parameters: PenContactParameters = (
+        DEFAULT_PEN_CONTACT_PARAMETERS
+    ),
+) -> np.ndarray:
+    """Fit an XY path inside a rectangular writing surface.
+
+    The path is uniformly scaled to preserve aspect ratio, centered on
+    the configured surface center, and leaves ``margin_m`` on every
+    side. Z coordinates are left unchanged.
+    """
+
+    positions = np.asarray(
+        positions_m,
+        dtype=float,
+    )
+
+    if (
+        positions.ndim != 2
+        or positions.shape[1] != 3
+    ):
+        raise ValueError(
+            "positions_m must have shape (N, 3)"
+        )
+
+    if positions.shape[0] == 0:
+        raise ValueError(
+            "positions_m must not be empty"
+        )
+
+    if not np.all(np.isfinite(positions)):
+        raise ValueError(
+            "positions_m contains invalid values"
+        )
+
+    surface_size = np.asarray(
+        surface_size_m,
+        dtype=float,
+    )
+
+    if surface_size.shape != (2,):
+        raise ValueError(
+            "surface_size_m must have shape (2,)"
+        )
+
+    if (
+        not np.all(np.isfinite(surface_size))
+        or np.any(surface_size <= 0.0)
+    ):
+        raise ValueError(
+            "surface_size_m must contain positive finite values"
+        )
+
+    if (
+        not np.isfinite(margin_m)
+        or margin_m < 0.0
+    ):
+        raise ValueError(
+            "margin_m must be finite and nonnegative"
+        )
+
+    available_size = (
+        surface_size - 2.0 * margin_m
+    )
+
+    if np.any(available_size <= 0.0):
+        raise ValueError(
+            "margin_m leaves no usable writing area"
+        )
+
+    result = positions.copy()
+
+    xy_min = np.min(
+        result[:, :2],
+        axis=0,
+    )
+
+    xy_max = np.max(
+        result[:, :2],
+        axis=0,
+    )
+
+    span = xy_max - xy_min
+
+    scale_candidates = []
+
+    for dimension in range(2):
+        if span[dimension] > 0.0:
+            scale_candidates.append(
+                available_size[dimension]
+                / span[dimension]
+            )
+
+    scale = (
+        min(scale_candidates)
+        if scale_candidates
+        else 1.0
+    )
+
+    current_center = (
+        0.5 * (xy_min + xy_max)
+    )
+
+    desired_center = np.array(
+        [
+            parameters.surface_center_x_m,
+            parameters.surface_center_y_m,
+        ],
+        dtype=float,
+    )
+
+    result[:, :2] = (
+        desired_center
+        + scale
+        * (
+            result[:, :2]
+            - current_center
+        )
+    )
+
+    return result
+
+
 def center_xy_path_on_surface(
     positions_m: np.ndarray,
     *,

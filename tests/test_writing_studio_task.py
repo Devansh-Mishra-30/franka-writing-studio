@@ -45,6 +45,43 @@ class WritingStudioTaskTests(unittest.TestCase):
             0.0,
         )
 
+    def test_validate_checks_model_reachability(self):
+        task = self.make_task()
+
+        task.plan()
+        report = task.validate()
+
+        self.assertTrue(report.success)
+        self.assertTrue(report.trajectory_finite)
+        self.assertTrue(report.within_notebook_bounds)
+        self.assertTrue(report.sampled_reachability)
+
+        self.assertGreater(
+            report.checked_waypoints,
+            0,
+        )
+
+        self.assertIsNone(
+            report.failed_waypoint_index
+        )
+
+        self.assertLess(
+            report.max_position_error_m,
+            1e-4,
+        )
+
+        self.assertLess(
+            report.max_orientation_error_rad,
+            1e-4,
+        )
+
+    def test_validate_requires_plan(self):
+        task = self.make_task()
+
+        with self.assertRaises(RuntimeError):
+            task.validate()
+
+
     def test_reset_clears_plan(self):
         task = self.make_task()
 

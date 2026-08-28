@@ -5,6 +5,7 @@ import numpy as np
 from contact_dynamics import (
     DEFAULT_PEN_CONTACT_PARAMETERS,
     apply_write_preload,
+    fit_xy_path_to_surface,
     kelvin_voigt_normal_force,
 )
 
@@ -64,6 +65,150 @@ class ContactDynamicsTests(unittest.TestCase):
             parameters
             .pybullet_body_contact_damping_n_s_m,
             20.0,
+        )
+
+    def test_fit_xy_path_preserves_aspect_ratio_and_margin(self):
+        positions = np.array(
+            [
+                [0.0, 0.0, 0.525],
+                [0.4, 0.0, 0.525],
+                [0.4, 0.2, 0.525],
+                [0.0, 0.2, 0.525],
+            ],
+            dtype=float,
+        )
+
+        result = fit_xy_path_to_surface(
+            positions,
+            surface_size_m=(0.42, 0.30),
+            margin_m=0.02,
+        )
+
+        span = np.ptp(
+            result[:, :2],
+            axis=0,
+        )
+
+        # Available notebook area:
+        # X = 0.42 - 2(0.02) = 0.38 m
+        # Y = 0.30 - 2(0.02) = 0.26 m
+        #
+        # Original aspect ratio is 2:1, so X is limiting.
+        self.assertAlmostEqual(
+            span[0],
+            0.38,
+            places=12,
+        )
+
+        self.assertAlmostEqual(
+            span[1],
+            0.19,
+            places=12,
+        )
+
+        np.testing.assert_allclose(
+            np.mean(
+                [
+                    np.min(result[:, :2], axis=0),
+                    np.max(result[:, :2], axis=0),
+                ],
+                axis=0,
+            ),
+            [0.45, 0.0],
+            atol=1e-12,
+        )
+
+    def test_fit_xy_path_does_not_change_height(self):
+        positions = np.array(
+            [
+                [0.0, 0.0, 0.575],
+                [0.4, 0.4, 0.525],
+            ],
+            dtype=float,
+        )
+
+        result = fit_xy_path_to_surface(
+            positions,
+            surface_size_m=(0.42, 0.30),
+            margin_m=0.02,
+        )
+
+        np.testing.assert_allclose(
+            result[:, 2],
+            positions[:, 2],
+            atol=0.0,
+        )
+
+    def test_fit_xy_path_preserves_aspect_ratio_and_margin(self):
+        positions = np.array(
+            [
+                [0.0, 0.0, 0.525],
+                [0.4, 0.0, 0.525],
+                [0.4, 0.2, 0.525],
+                [0.0, 0.2, 0.525],
+            ],
+            dtype=float,
+        )
+
+        result = fit_xy_path_to_surface(
+            positions,
+            surface_size_m=(0.42, 0.30),
+            margin_m=0.02,
+        )
+
+        span = np.ptp(
+            result[:, :2],
+            axis=0,
+        )
+
+        # Available notebook area:
+        # X = 0.42 - 2(0.02) = 0.38 m
+        # Y = 0.30 - 2(0.02) = 0.26 m
+        #
+        # Original aspect ratio is 2:1, so X is limiting.
+        self.assertAlmostEqual(
+            span[0],
+            0.38,
+            places=12,
+        )
+
+        self.assertAlmostEqual(
+            span[1],
+            0.19,
+            places=12,
+        )
+
+        np.testing.assert_allclose(
+            np.mean(
+                [
+                    np.min(result[:, :2], axis=0),
+                    np.max(result[:, :2], axis=0),
+                ],
+                axis=0,
+            ),
+            [0.45, 0.0],
+            atol=1e-12,
+        )
+
+    def test_fit_xy_path_does_not_change_height(self):
+        positions = np.array(
+            [
+                [0.0, 0.0, 0.575],
+                [0.4, 0.4, 0.525],
+            ],
+            dtype=float,
+        )
+
+        result = fit_xy_path_to_surface(
+            positions,
+            surface_size_m=(0.42, 0.30),
+            margin_m=0.02,
+        )
+
+        np.testing.assert_allclose(
+            result[:, 2],
+            positions[:, 2],
+            atol=0.0,
         )
 
     def test_preload_only_changes_write_height(self):

@@ -12,7 +12,7 @@ import numpy as np
 from contact_dynamics import (
     DEFAULT_PEN_CONTACT_PARAMETERS,
     apply_write_preload,
-    center_xy_path_on_surface,
+    fit_xy_path_to_surface,
 )
 from differential_ik import (
     solve_pose_differential_ik,
@@ -149,10 +149,14 @@ class WritingExperiment:
         )
 
         nominal_pen_tip_waypoints_m = (
-            center_xy_path_on_surface(
+            fit_xy_path_to_surface(
                 legacy_positions_to_pen_tip(
                     self.trajectory.positions_m
                 ),
+                surface_size_m=(
+                    WRITING_STUDIO.notebook.size_m[:2]
+                ),
+                margin_m=0.02,
                 parameters=contact_parameters,
             )
         )
