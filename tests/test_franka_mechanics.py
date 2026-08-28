@@ -54,6 +54,26 @@ class FrankaMechanicsTests(unittest.TestCase):
             np.all(np.isfinite(jacobian))
         )
 
+    def test_tool_position_matches_fk_position(self):
+        position = self.mechanics.get_tool_position(
+            INITIAL_Q
+        )
+        pose = self.mechanics.solve_fk(
+            INITIAL_Q
+        )
+
+        self.assertEqual(
+            position.shape,
+            (3,),
+        )
+
+        np.testing.assert_allclose(
+            position,
+            pose[:3],
+            rtol=0.0,
+            atol=1e-12,
+        )
+
     def test_official_limits_are_available(self):
         self.assertEqual(
             self.mechanics
