@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
@@ -18,6 +19,10 @@ from pen_tip_kinematics import (
     PEN_TIP_OFFSET_TOOL_M,
     pen_tip_position,
 )
+from simulation.pybullet_adapter import (
+    PyBulletAdapter,
+    PyBulletSettings,
+)
 from tasks.base import TaskStatus
 from workcells import WRITING_STUDIO
 
@@ -29,8 +34,10 @@ class WritingValidationReport:
     trajectory_finite: bool
     within_notebook_bounds: bool
     sampled_reachability: bool
+    sampled_collision_free: bool
     checked_waypoints: int
     failed_waypoint_index: int | None
+    collision_waypoint_index: int | None
     max_position_error_m: float
     max_orientation_error_rad: float
 
@@ -40,6 +47,7 @@ class WritingValidationReport:
             self.trajectory_finite
             and self.within_notebook_bounds
             and self.sampled_reachability
+            and self.sampled_collision_free
         )
 
 
@@ -179,7 +187,9 @@ class WritingStudioTask:
         )
 
         sampled_reachability = trajectory_finite
+        sampled_collision_free = trajectory_finite
         failed_waypoint_index: int | None = None
+        collision_waypoint_index: int | None = None
         max_position_error_m = 0.0
         max_orientation_error_rad = 0.0
         checked_waypoints = 0
@@ -210,54 +220,85 @@ class WritingStudioTask:
                 )
             )
 
+            simulator = PyBulletAdapter(
+                PyBulletSettings(
+                    mode="direct",
+                    timestep_s=0.001,
+                    output_dir=Path(
+                        "/tmp/writing_studio_validation"
+                    ),
+                    desk_geometry=WRITING_STUDIO.desk,
+                    writing_surface_geometry=(
+                        WRITING_STUDIO.notebook
+                    ),
+                )
+            )
+
             q_seed = INITIAL_JOINT_POSITIONS_RAD.copy()
 
-            for waypoint_index in sample_indices:
-                target_pen_tip_m = points[
-                    waypoint_index
-                ]
+            try:
+                simulator.configure()
 
-                target_tool_position_m = (
-                    target_pen_tip_m
-                    - pen_offset_world_m
-                )
-
-                ik_result = mechanics.solve_pose_ik(
-                    q_seed,
-                    target_tool_position_m,
-                    desired_rotation,
-                )
-
-                checked_waypoints += 1
-
-                max_position_error_m = max(
-                    max_position_error_m,
-                    ik_result.position_error_m,
-                )
-
-                max_orientation_error_rad = max(
-                    max_orientation_error_rad,
-                    ik_result.orientation_error_rad,
-                )
-
-                if (
-                    not ik_result.success
-                    or not ik_result.within_joint_limits
-                ):
-                    sampled_reachability = False
-                    failed_waypoint_index = int(
+                for waypoint_index in sample_indices:
+                    target_pen_tip_m = points[
                         waypoint_index
-                    )
-                    break
+                    ]
 
-                q_seed = ik_result.q
+                    target_tool_position_m = (
+                        target_pen_tip_m
+                        - pen_offset_world_m
+                    )
+
+                    ik_result = mechanics.solve_pose_ik(
+                        q_seed,
+                        target_tool_position_m,
+                        desired_rotation,
+                    )
+
+                    checked_waypoints += 1
+
+                    max_position_error_m = max(
+                        max_position_error_m,
+                        ik_result.position_error_m,
+                    )
+
+                    max_orientation_error_rad = max(
+                        max_orientation_error_rad,
+                        ik_result.orientation_error_rad,
+                    )
+
+                    if (
+                        not ik_result.success
+                        or not ik_result.within_joint_limits
+                    ):
+                        sampled_reachability = False
+                        failed_waypoint_index = int(
+                            waypoint_index
+                        )
+                        break
+
+                    q_seed = ik_result.q
+
+                    simulator.reset(q_seed)
+
+                    if simulator.has_robot_table_collision():
+                        sampled_collision_free = False
+                        collision_waypoint_index = int(
+                            waypoint_index
+                        )
+                        break
+
+            finally:
+                simulator.shutdown()
 
         self._validation_report = WritingValidationReport(
             trajectory_finite=trajectory_finite,
             within_notebook_bounds=within_notebook_bounds,
             sampled_reachability=sampled_reachability,
+            sampled_collision_free=sampled_collision_free,
             checked_waypoints=checked_waypoints,
             failed_waypoint_index=failed_waypoint_index,
+            collision_waypoint_index=collision_waypoint_index,
             max_position_error_m=max_position_error_m,
             max_orientation_error_rad=(
                 max_orientation_error_rad
