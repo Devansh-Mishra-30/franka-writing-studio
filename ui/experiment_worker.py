@@ -8,7 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal, Slot
 
 from experiment_config import ExperimentConfig
-from experiments.writing_experiment import WritingExperiment
+from tasks.writing_studio import WritingStudioTask
 
 
 class ExperimentWorker(QObject):
@@ -61,7 +61,7 @@ class ExperimentWorker(QObject):
                 full_plan=self.full_plan,
             ).validate()
 
-            experiment = WritingExperiment(
+            task = WritingStudioTask(
                 config,
                 telemetry_callback=(
                     self.telemetry.emit
@@ -69,7 +69,17 @@ class ExperimentWorker(QObject):
                 telemetry_period_s=0.05,
             )
 
-            result = experiment.run()
+            task.plan()
+
+            validation = task.validate()
+
+            if not validation.success:
+                raise RuntimeError(
+                    "Writing Studio validation failed: "
+                    f"{validation}"
+                )
+
+            result = task.run()
 
             self.completed.emit(result)
 
