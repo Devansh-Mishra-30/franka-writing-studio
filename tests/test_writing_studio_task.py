@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from experiment_config import ExperimentConfig
 from tasks.base import TaskStatus
@@ -81,6 +82,78 @@ class WritingStudioTaskTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             task.validate()
 
+
+    def test_run_requires_plan(self):
+        task = self.make_task()
+
+        with self.assertRaises(RuntimeError):
+            task.run()
+
+        self.assertEqual(
+            task.status,
+            TaskStatus.IDLE,
+        )
+
+    def test_run_requires_validation(self):
+        task = self.make_task()
+
+        task.plan()
+
+        with self.assertRaises(RuntimeError):
+            task.run()
+
+        self.assertEqual(
+            task.status,
+            TaskStatus.READY,
+        )
+
+    def test_successful_run_transitions_to_complete(self):
+        task = self.make_task()
+
+        task.plan()
+        report = task.validate()
+        self.assertTrue(report.success)
+
+        expected_result = object()
+
+        with patch.object(
+            task._experiment,
+            "run",
+            return_value=expected_result,
+        ):
+            result = task.run()
+
+        self.assertIs(
+            result,
+            expected_result,
+        )
+
+        self.assertEqual(
+            task.status,
+            TaskStatus.COMPLETE,
+        )
+
+    def test_execution_failure_transitions_to_failed(self):
+        task = self.make_task()
+
+        task.plan()
+        report = task.validate()
+        self.assertTrue(report.success)
+
+        with patch.object(
+            task._experiment,
+            "run",
+            side_effect=RuntimeError(
+                "simulated execution failure"
+            ),
+        ):
+            with self.assertRaises(RuntimeError):
+                task.run()
+
+        self.assertEqual(
+            task.status,
+            TaskStatus.FAILED,
+        )
 
     def test_reset_clears_plan(self):
         task = self.make_task()
