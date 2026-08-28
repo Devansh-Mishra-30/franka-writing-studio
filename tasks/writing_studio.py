@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Callable
 
 import numpy as np
 
 from experiment_config import ExperimentConfig
 from experiments.writing_experiment import (
     INITIAL_JOINT_POSITIONS_RAD,
+    ExperimentResult,
     WritingExperiment,
     WritingPlanningResult,
 )
@@ -47,8 +49,16 @@ class WritingStudioTask:
     def __init__(
         self,
         config: ExperimentConfig,
+        telemetry_callback: (
+            Callable[[dict[str, Any]], None] | None
+        ) = None,
+        telemetry_period_s: float = 0.05,
     ) -> None:
-        self._experiment = WritingExperiment(config)
+        self._experiment = WritingExperiment(
+            config,
+            telemetry_callback=telemetry_callback,
+            telemetry_period_s=telemetry_period_s,
+        )
         self._status = TaskStatus.IDLE
         self._planning_result: WritingPlanningResult | None = None
         self._validation_report: WritingValidationReport | None = None
@@ -260,6 +270,36 @@ class WritingStudioTask:
             self._status = TaskStatus.READY
 
         return self._validation_report
+
+    def run(self) -> ExperimentResult:
+        """Execute a successfully planned and validated task."""
+
+        if self._planning_result is None:
+            raise RuntimeError(
+                "Task must be planned before running"
+            )
+
+        if self._validation_report is None:
+            raise RuntimeError(
+                "Task must be validated before running"
+            )
+
+        if not self._validation_report.success:
+            self._status = TaskStatus.FAILED
+            raise RuntimeError(
+                "Task validation failed; execution is blocked"
+            )
+
+        self._status = TaskStatus.RUNNING
+
+        try:
+            result = self._experiment.run()
+        except Exception:
+            self._status = TaskStatus.FAILED
+            raise
+
+        self._status = TaskStatus.COMPLETE
+        return result
 
     def reset(self) -> None:
         """Return the task to its initial lifecycle state."""
