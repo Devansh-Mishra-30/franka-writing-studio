@@ -312,6 +312,32 @@ class FrankaMechanics:
             dtype=float,
         ).reshape(self.model.nq)
 
+    def get_tool_position(
+        self,
+        q: np.ndarray,
+    ) -> np.ndarray:
+        """Return tool position in the world frame."""
+
+        q = self._validate_q(q)
+
+        pin.forwardKinematics(
+            self.model,
+            self.data,
+            q,
+        )
+
+        pin.updateFramePlacements(
+            self.model,
+            self.data,
+        )
+
+        return (
+            self.data.oMf[
+                self.tool_frame_id
+            ]
+            .translation.copy()
+        )
+
     def get_tool_rotation(
         self,
         q: np.ndarray,
