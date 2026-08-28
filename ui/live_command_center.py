@@ -125,7 +125,7 @@ class LiveCommandCenter(CommandCenter):
         )
 
         self.full_plan_checkbox.setChecked(
-            False
+            True
         )
 
         experiment_layout.addWidget(
@@ -629,8 +629,32 @@ class LiveCommandCenter(CommandCenter):
             None,
         )
 
-        self.status_label.setText(
+        summary = getattr(
+            result,
+            "summary",
+            {},
+        )
+
+        writing_plan = summary.get(
+            "writing_plan",
+            {},
+        )
+
+        full_plan = bool(
+            writing_plan.get(
+                "full_plan",
+                False,
+            )
+        )
+
+        completion_text = (
             "LIVE EXPERIMENT COMPLETE"
+            if full_plan
+            else "DEBUG RUN COMPLETE — PARTIAL PLAN"
+        )
+
+        self.status_label.setText(
+            completion_text
             + (
                 f" — {samples_path}"
                 if samples_path is not None
