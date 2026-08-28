@@ -67,6 +67,18 @@ INITIAL_JOINT_POSITIONS_RAD = np.array(
 
 
 @dataclass(frozen=True)
+class WritingPlanningResult:
+    """Simulator-independent output of writing trajectory planning."""
+
+    contact_parameters: Any
+    nominal_pen_tip_waypoints_m: np.ndarray
+    pen_tip_waypoints_m: np.ndarray
+    nominal_write_height_m: float
+    write_height_m: float
+    writing_plan: TimedWritingPlan
+
+
+@dataclass(frozen=True)
 class ExperimentResult:
     """Files and summary produced by one experiment."""
 
@@ -100,6 +112,89 @@ class WritingExperiment:
 
         self.trajectory = SvgTrajectory(
             self.config.svg_file
+        )
+
+    def build_plan(
+        self,
+        initial_pen_tip_position_m: np.ndarray,
+    ) -> WritingPlanningResult:
+        """Build the complete writing plan without running simulation."""
+
+        initial_position = np.asarray(
+            initial_pen_tip_position_m,
+            dtype=float,
+        )
+
+        if initial_position.shape != (3,):
+            raise ValueError(
+                "initial_pen_tip_position_m must have shape (3,)"
+            )
+
+        if not np.all(np.isfinite(initial_position)):
+            raise ValueError(
+                "initial_pen_tip_position_m contains invalid values"
+            )
+
+        contact_parameters = replace(
+            DEFAULT_PEN_CONTACT_PARAMETERS,
+            surface_height_m=(
+                WRITING_STUDIO.notebook.top_height_m
+            ),
+            surface_center_x_m=(
+                WRITING_STUDIO.notebook.center_m[0]
+            ),
+            surface_center_y_m=(
+                WRITING_STUDIO.notebook.center_m[1]
+            ),
+        )
+
+        nominal_pen_tip_waypoints_m = (
+            center_xy_path_on_surface(
+                legacy_positions_to_pen_tip(
+                    self.trajectory.positions_m
+                ),
+                parameters=contact_parameters,
+            )
+        )
+
+        nominal_write_height_m = float(
+            np.min(
+                nominal_pen_tip_waypoints_m[:, 2]
+            )
+        )
+
+        pen_tip_waypoints_m = apply_write_preload(
+            nominal_pen_tip_waypoints_m,
+            nominal_write_height_m=(
+                nominal_write_height_m
+            ),
+            parameters=contact_parameters,
+        )
+
+        write_height_m = float(
+            np.min(
+                pen_tip_waypoints_m[:, 2]
+            )
+        )
+
+        writing_plan = TimedWritingPlan(
+            initial_position_m=initial_position,
+            svg_positions_m=pen_tip_waypoints_m,
+            write_height_m=write_height_m,
+            speed_scale=self.config.speed_scale,
+        )
+
+        return WritingPlanningResult(
+            contact_parameters=contact_parameters,
+            nominal_pen_tip_waypoints_m=(
+                nominal_pen_tip_waypoints_m
+            ),
+            pen_tip_waypoints_m=pen_tip_waypoints_m,
+            nominal_write_height_m=(
+                nominal_write_height_m
+            ),
+            write_height_m=write_height_m,
+            writing_plan=writing_plan,
         )
 
     def run(self) -> ExperimentResult:
@@ -197,62 +292,26 @@ class WritingExperiment:
                 )
             )
 
-            contact_parameters = replace(
-                DEFAULT_PEN_CONTACT_PARAMETERS,
-                surface_height_m=(
-                    WRITING_STUDIO.notebook.top_height_m
-                ),
-                surface_center_x_m=(
-                    WRITING_STUDIO.notebook.center_m[0]
-                ),
-                surface_center_y_m=(
-                    WRITING_STUDIO.notebook.center_m[1]
-                ),
+            planning = self.build_plan(
+                initial_pen_tip_position_m
             )
 
+            contact_parameters = (
+                planning.contact_parameters
+            )
             nominal_pen_tip_waypoints_m = (
-                center_xy_path_on_surface(
-                    legacy_positions_to_pen_tip(
-                        self.trajectory.positions_m
-                    ),
-                    parameters=contact_parameters,
-                )
+                planning.nominal_pen_tip_waypoints_m
             )
-
-            nominal_write_height_m = float(
-                np.min(
-                    nominal_pen_tip_waypoints_m[:, 2]
-                )
-            )
-
             pen_tip_waypoints_m = (
-                apply_write_preload(
-                    nominal_pen_tip_waypoints_m,
-                    nominal_write_height_m=(
-                        nominal_write_height_m
-                    ),
-                    parameters=contact_parameters,
-                )
+                planning.pen_tip_waypoints_m
             )
-
-            write_height_m = float(
-                np.min(
-                    pen_tip_waypoints_m[:, 2]
-                )
+            nominal_write_height_m = (
+                planning.nominal_write_height_m
             )
-
-            writing_plan = TimedWritingPlan(
-                initial_position_m=(
-                    initial_pen_tip_position_m
-                ),
-                svg_positions_m=(
-                    pen_tip_waypoints_m
-                ),
-                write_height_m=write_height_m,
-                speed_scale=(
-                    self.config.speed_scale
-                ),
+            write_height_m = (
+                planning.write_height_m
             )
+            writing_plan = planning.writing_plan
 
             if simulator.client_id is None:
                 raise RuntimeError(
