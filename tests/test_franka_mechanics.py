@@ -74,6 +74,51 @@ class FrankaMechanicsTests(unittest.TestCase):
             atol=1e-12,
         )
 
+    def test_pose_ik_reaches_known_reachable_pose(self):
+        q_target = INITIAL_Q + np.array(
+            [
+                0.02,
+                -0.015,
+                0.01,
+                0.02,
+                -0.01,
+                0.015,
+                -0.02,
+            ],
+            dtype=float,
+        )
+
+        target_position = (
+            self.mechanics.get_tool_position(
+                q_target
+            )
+        )
+
+        target_rotation = (
+            self.mechanics.get_tool_rotation(
+                q_target
+            )
+        )
+
+        result = self.mechanics.solve_pose_ik(
+            INITIAL_Q,
+            target_position,
+            target_rotation,
+        )
+
+        self.assertTrue(result.success)
+        self.assertTrue(result.within_joint_limits)
+
+        self.assertLess(
+            result.position_error_m,
+            1e-4,
+        )
+
+        self.assertLess(
+            result.orientation_error_rad,
+            1e-4,
+        )
+
     def test_official_limits_are_available(self):
         self.assertEqual(
             self.mechanics

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,19 @@ DEFAULT_URDF_PATH = Path(
 )
 
 DEFAULT_TOOL_FRAME_NAME = "fer_link8"
+
+
+@dataclass(frozen=True)
+class PoseIKResult:
+    """Result of a bounded six-DoF pose IK solve."""
+
+    q: np.ndarray
+    success: bool
+    iterations: int
+    final_error_norm: float
+    position_error_m: float
+    orientation_error_rad: float
+    within_joint_limits: bool
 
 
 class FrankaMechanics:
@@ -186,6 +200,216 @@ class FrankaMechanics:
         )
 
         return np.concatenate((position, rpy))
+
+    def solve_pose_ik(
+        self,
+        q_initial: np.ndarray,
+        target_position_m: np.ndarray,
+        target_rotation: np.ndarray,
+        *,
+        tolerance: float = 1e-4,
+        max_iterations: int = 2000,
+        integration_step: float = 0.1,
+        damping: float = 1e-4,
+    ) -> PoseIKResult:
+        """Solve bounded six-DoF IK for the named tool frame."""
+
+        q = self._validate_q(q_initial).copy()
+
+        target_position = np.asarray(
+            target_position_m,
+            dtype=float,
+        )
+
+        target_rotation_array = np.asarray(
+            target_rotation,
+            dtype=float,
+        )
+
+        if target_position.shape != (3,):
+            raise ValueError(
+                "target_position_m must have shape (3,)"
+            )
+
+        if target_rotation_array.shape != (3, 3):
+            raise ValueError(
+                "target_rotation must have shape (3, 3)"
+            )
+
+        if not np.all(np.isfinite(target_position)):
+            raise ValueError(
+                "target_position_m contains invalid values"
+            )
+
+        if not np.all(np.isfinite(target_rotation_array)):
+            raise ValueError(
+                "target_rotation contains invalid values"
+            )
+
+        if not np.allclose(
+            target_rotation_array.T @ target_rotation_array,
+            np.eye(3),
+            atol=1e-8,
+        ):
+            raise ValueError(
+                "target_rotation must be orthonormal"
+            )
+
+        if not np.isclose(
+            np.linalg.det(target_rotation_array),
+            1.0,
+            atol=1e-8,
+        ):
+            raise ValueError(
+                "target_rotation must have determinant +1"
+            )
+
+        if tolerance <= 0.0:
+            raise ValueError(
+                "tolerance must be positive"
+            )
+
+        if max_iterations <= 0:
+            raise ValueError(
+                "max_iterations must be positive"
+            )
+
+        if integration_step <= 0.0:
+            raise ValueError(
+                "integration_step must be positive"
+            )
+
+        if damping <= 0.0:
+            raise ValueError(
+                "damping must be positive"
+            )
+
+        desired_transform = pin.SE3(
+            target_rotation_array,
+            target_position,
+        )
+
+        lower_limits = self.joint_position_lower_limits
+        upper_limits = self.joint_position_upper_limits
+
+        success = False
+        final_error_norm = float("inf")
+        iterations = 0
+
+        for iteration in range(max_iterations + 1):
+            pin.forwardKinematics(
+                self.model,
+                self.data,
+                q,
+            )
+
+            pin.updateFramePlacements(
+                self.model,
+                self.data,
+            )
+
+            current_transform = self.data.oMf[
+                self.tool_frame_id
+            ]
+
+            desired_to_current = (
+                desired_transform.actInv(
+                    current_transform
+                )
+            )
+
+            error = pin.log6(
+                desired_to_current
+            ).vector
+
+            final_error_norm = float(
+                norm(error)
+            )
+            iterations = iteration
+
+            if final_error_norm < tolerance:
+                success = True
+                break
+
+            if iteration >= max_iterations:
+                break
+
+            jacobian = pin.computeFrameJacobian(
+                self.model,
+                self.data,
+                q,
+                self.tool_frame_id,
+                pin.ReferenceFrame.LOCAL,
+            )
+
+            velocity = -jacobian.T @ solve(
+                jacobian @ jacobian.T
+                + (damping ** 2) * np.eye(6),
+                error,
+            )
+
+            q = pin.integrate(
+                self.model,
+                q,
+                velocity * integration_step,
+            )
+
+            q = np.clip(
+                q,
+                lower_limits,
+                upper_limits,
+            )
+
+        pin.forwardKinematics(
+            self.model,
+            self.data,
+            q,
+        )
+
+        pin.updateFramePlacements(
+            self.model,
+            self.data,
+        )
+
+        final_transform = self.data.oMf[
+            self.tool_frame_id
+        ]
+
+        position_error_m = float(
+            norm(
+                final_transform.translation
+                - target_position
+            )
+        )
+
+        rotation_error_matrix = (
+            target_rotation_array.T
+            @ final_transform.rotation
+        )
+
+        orientation_error_rad = float(
+            Rotation.from_matrix(
+                rotation_error_matrix
+            ).magnitude()
+        )
+
+        within_joint_limits = bool(
+            np.all(q >= lower_limits - 1e-10)
+            and np.all(q <= upper_limits + 1e-10)
+        )
+
+        return PoseIKResult(
+            q=np.asarray(
+                q,
+                dtype=float,
+            ).reshape(7),
+            success=success,
+            iterations=iterations,
+            final_error_norm=final_error_norm,
+            position_error_m=position_error_m,
+            orientation_error_rad=orientation_error_rad,
+            within_joint_limits=within_joint_limits,
+        )
 
     def solve_ik(
         self,
