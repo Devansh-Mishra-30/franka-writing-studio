@@ -12,14 +12,6 @@ ROBOT_URDF = Path(
     "fer_franka_hand_pybullet.urdf"
 )
 
-SURFACE_SOURCE = Path(
-    "urdfs/writing_surface.urdf"
-)
-
-SURFACE_RUNTIME = Path(
-    "urdfs/writing_surface_pybullet.urdf"
-)
-
 EPSILON_MASS_KG = "1e-9"
 EPSILON_INERTIA_KG_M2 = "1e-12"
 
@@ -158,27 +150,13 @@ def sanitize(
 
 
 def main() -> None:
-    if not SURFACE_RUNTIME.exists():
-        shutil.copy2(
-            SURFACE_SOURCE,
-            SURFACE_RUNTIME,
-        )
-        print(
-            "Created PyBullet writing-surface derivative"
-        )
-
     sanitize(
         ROBOT_URDF,
         remove_accelerometers=True,
     )
 
-    sanitize(
-        SURFACE_RUNTIME,
-        remove_accelerometers=False,
-    )
-
     print()
-    print("PASS: PyBullet URDF derivatives sanitized")
+    print("PASS: PyBullet Franka URDF sanitized")
 
 
 if __name__ == "__main__":
