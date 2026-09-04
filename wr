@@ -97,6 +97,222 @@ run_gui() {
         python3 -m ui.live_command_center
 }
 
+run_doctor() {
+    echo "========================================"
+    echo " Franka Writing Studio — Doctor"
+    echo "========================================"
+    echo
+
+    failures=0
+
+    ok()   { printf "  [OK]   %s\n" "$1"; }
+    warn() { printf "  [WARN] %s\n" "$1"; }
+    fail() {
+        printf "  [FAIL] %s\n" "$1"
+        failures=$((failures + 1))
+    }
+
+    echo "==> Environment"
+
+    command -v git >/dev/null 2>&1 \
+        && ok "$(git --version)" \
+        || fail "Git not found"
+
+    command -v docker >/dev/null 2>&1 \
+        && ok "Docker CLI available" \
+        || fail "Docker CLI not found"
+
+    docker info >/dev/null 2>&1 \
+        && ok "Docker engine reachable" \
+        || fail "Docker engine unavailable"
+
+    echo
+    echo "==> Required project files"
+
+    required=(
+        "Dockerfile"
+        "requirements.lock"
+        "franka_mechanics.py"
+        "experiments/writing_experiment.py"
+        "simulation/pybullet_adapter.py"
+        "tasks/writing_studio.py"
+        "workcells/writing_studio.py"
+        "urdfs/official_franka/fer.urdf"
+        "urdfs/official_franka/fer_franka_hand_pybullet.urdf"
+        "urdfs/pen_tool_pybullet.urdf"
+    )
+
+    for file in "${required[@]}"; do
+        [[ -e "$ROOT/$file" ]] \
+            && ok "$file" \
+            || fail "Missing: $file"
+    done
+
+    echo
+    echo "==> Franka submodule"
+
+    submodule="$(
+        git -C "$ROOT" submodule status --recursive 2>/dev/null || true
+    )"
+
+    if [[ -z "$submodule" ]]; then
+        fail "Franka description submodule unavailable"
+    elif [[ "$submodule" == -* ]]; then
+        fail "Submodule not initialized"
+    elif [[ "$submodule" == +* ]]; then
+        warn "Submodule differs from pinned commit"
+        echo "         $submodule"
+    else
+        ok "Pinned Franka description present"
+        echo "         $submodule"
+    fi
+
+    echo
+    echo "==> Docker image"
+
+    if image_exists; then
+        ok "$IMAGE available"
+    else
+        warn "$IMAGE not built — run ./wr build"
+    fi
+
+    echo
+    echo "==> Repository integrity"
+
+    if git -C "$ROOT" diff --check >/dev/null 2>&1 \
+        && git -C "$ROOT" diff --cached --check >/dev/null 2>&1; then
+        ok "No Git whitespace errors"
+    else
+        fail "Git whitespace errors detected"
+    fi
+
+    echo
+    echo "==> GUI"
+
+    if [[ -n "${DISPLAY:-}" ]]; then
+        ok "DISPLAY=${DISPLAY}"
+    else
+        warn "DISPLAY unset — GUI may not launch"
+    fi
+
+    echo
+    if (( failures == 0 )); then
+        echo "DOCTOR: PASS"
+        return 0
+    fi
+
+    echo "DOCTOR: FAIL ($failures issue(s))"
+    return 1
+}
+
+
+run_audit() {
+    echo "========================================"
+    echo " Franka Writing Studio — Repository Audit"
+    echo "========================================"
+
+    echo
+    echo "==> Git"
+    git -C "$ROOT" status --short --branch
+
+    echo
+    echo "==> Top-level structure"
+    find "$ROOT" \
+        -maxdepth 1 \
+        -mindepth 1 \
+        ! -name '.git' \
+        -printf '%y  %f\n' \
+        | sort
+
+    echo
+    echo "==> Generated / temporary files"
+    find "$ROOT" \
+        \( \
+            -type d -name '__pycache__' \
+            -o -type d -name '.pytest_cache' \
+            -o -type f -name '*.pyc' \
+            -o -type f -name '*.pyo' \
+            -o -type f -name '*.tmp' \
+            -o -type f -name '*.temp' \
+        \) \
+        ! -path "$ROOT/.git/*" \
+        -print 2>/dev/null \
+        | sort
+
+    echo
+    echo "==> Root-owned generated files"
+    find "$ROOT" \
+        \( \
+            -type d -name '__pycache__' \
+            -o -type d -name '.pytest_cache' \
+            -o -type f -name '*.pyc' \
+            -o -type f -name '*.tmp' \
+        \) \
+        -user root \
+        -print 2>/dev/null \
+        | sort
+
+    echo
+    echo "==> SVG inputs"
+    find "$ROOT/svg" \
+        -maxdepth 1 \
+        -type f \
+        -name '*.svg' \
+        -printf '%f\n' 2>/dev/null \
+        | sort
+
+    echo
+    echo "==> Tracked file count"
+    git -C "$ROOT" ls-files | wc -l
+
+    echo
+    echo "AUDIT: COMPLETE"
+}
+
+
+run_clean() {
+    echo "==> Cleaning generated project files"
+
+    find "$ROOT" \
+        -type d \
+        \( -name '__pycache__' -o -name '.pytest_cache' \) \
+        -prune \
+        -exec rm -rf {} + 2>/dev/null || true
+
+    find "$ROOT" \
+        -type f \
+        \( \
+            -name '*.pyc' \
+            -o -name '*.pyo' \
+            -o -name '*.tmp' \
+            -o -name '*.temp' \
+        \) \
+        ! -path "$ROOT/.git/*" \
+        -delete 2>/dev/null || true
+
+    leftovers="$(
+        find "$ROOT" \
+            \( \
+                -type d -name '__pycache__' \
+                -o -type d -name '.pytest_cache' \
+                -o -type f -name '*.pyc' \
+                -o -type f -name '*.tmp' \
+            \) \
+            ! -path "$ROOT/.git/*" \
+            -print 2>/dev/null || true
+    )"
+
+    if [[ -n "$leftovers" ]]; then
+        echo "CLEAN: WARNING"
+        echo "$leftovers"
+        echo "Some files may be owned by root."
+        return 1
+    fi
+
+    echo "CLEAN: PASS"
+}
+
+
 show_help() {
     cat <<EOF
 Franka Workcell Launcher
@@ -113,6 +329,9 @@ Commands:
   phase4      Run Python -> MATLAB independent verification
   phase5      Generate controlled model-mismatch datasets
   phase6      Train/evaluate learned residual dynamics model
+  doctor      Check environment and repository readiness
+  audit       Inspect repository hygiene and generated files
+  clean       Remove safe cache and temporary files
   status      Show Docker image and Git status
   help        Show this help
 
@@ -162,6 +381,18 @@ case "$COMMAND" in
 
     phase6)
         run_phase6
+        ;;
+
+    doctor)
+        run_doctor
+        ;;
+
+    audit)
+        run_audit
+        ;;
+
+    clean)
+        run_clean
         ;;
 
     status)
