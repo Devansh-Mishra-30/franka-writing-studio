@@ -324,6 +324,7 @@ Commands:
   build       Build/update Docker development image
   rebuild     Force clean Docker rebuild
   test        Run pytest suite
+  e2e         Run full Writing Studio acceptance cycle
   shell       Open interactive development shell
   ui          Launch interactive command center
   phase4      Run Python -> MATLAB independent verification
@@ -361,6 +362,10 @@ case "$COMMAND" in
 
     test)
         docker_run python3 -m pytest -q
+        ;;
+
+    e2e)
+        docker_run python3 scripts/e2e_writing.py "${@:2}"
         ;;
 
     shell)

@@ -1364,7 +1364,7 @@ class WritingExperiment:
                 "deadline_miss_rate"
             ] = float(
                 deadline_miss_count
-                / self.config.num_steps
+                / len(loop_durations_s)
             )
 
             summary[
