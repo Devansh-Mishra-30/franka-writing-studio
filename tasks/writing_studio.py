@@ -8,6 +8,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from config import RUNTIME, VALIDATION
 from experiment_config import ExperimentConfig
 from experiments.writing_experiment import (
     INITIAL_JOINT_POSITIONS_RAD,
@@ -61,7 +62,7 @@ class WritingStudioTask:
         telemetry_callback: (
             Callable[[dict[str, Any]], None] | None
         ) = None,
-        telemetry_period_s: float = 0.05,
+        telemetry_period_s: float = RUNTIME.telemetry_period_s,
     ) -> None:
         self._experiment = WritingExperiment(
             config,
@@ -130,7 +131,7 @@ class WritingStudioTask:
     def validate(
         self,
         *,
-        maximum_ik_samples: int = 24,
+        maximum_ik_samples: int = VALIDATION.maximum_ik_samples,
     ) -> WritingValidationReport:
         """Validate geometry and sampled model-based reachability."""
 
@@ -224,7 +225,7 @@ class WritingStudioTask:
             simulator = PyBulletAdapter(
                 PyBulletSettings(
                     mode="direct",
-                    timestep_s=0.001,
+                    timestep_s=RUNTIME.timestep_s,
                     output_dir=Path(
                         "/tmp/writing_studio_validation"
                     ),

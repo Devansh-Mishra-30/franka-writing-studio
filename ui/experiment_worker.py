@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal, Slot
 
+from config import RUNTIME
 from experiment_config import ExperimentConfig
 from experiments.writing_experiment import ExperimentStopped
 from robot import (
@@ -60,7 +61,7 @@ class ExperimentWorker(QObject):
             config = ExperimentConfig(
                 mode=mode,
                 duration_s=self.duration_s,
-                timestep_s=0.001,
+                timestep_s=RUNTIME.timestep_s,
                 svg_file=self.svg_file,
                 output_dir=self.output_dir,
                 realtime=self.show_robot,
@@ -80,7 +81,7 @@ class ExperimentWorker(QObject):
                 telemetry_callback=(
                     self.telemetry.emit
                 ),
-                telemetry_period_s=0.05,
+                telemetry_period_s=RUNTIME.telemetry_period_s,
             )
 
             # GUI, CLI, tests and future PLC all use

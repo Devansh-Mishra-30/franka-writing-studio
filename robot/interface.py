@@ -18,6 +18,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from config import RUNTIME
 from experiment_config import ExperimentConfig
 from experiments.writing_experiment import (
     ExperimentResult,
@@ -51,7 +52,7 @@ class RobotInterface:
         telemetry_callback: (
             Callable[[dict[str, Any]], None] | None
         ) = None,
-        telemetry_period_s: float = 0.05,
+        telemetry_period_s: float = RUNTIME.telemetry_period_s,
     ) -> None:
         self._lock = threading.RLock()
 

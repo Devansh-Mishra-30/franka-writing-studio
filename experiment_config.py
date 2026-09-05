@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+from config import RUNTIME
+
 
 VALID_MODES = ("direct", "gui")
 
@@ -18,7 +20,7 @@ class ExperimentConfig:
 
     mode: str = "direct"
     duration_s: float = 2.0
-    timestep_s: float = 0.001
+    timestep_s: float = RUNTIME.timestep_s
     svg_file: Path = Path(
         "svg/portfolio_writing1 (8).svg"
     )
@@ -148,7 +150,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--timestep",
         dest="timestep_s",
         type=float,
-        default=0.001,
+        default=RUNTIME.timestep_s,
         help="Physics timestep in seconds.",
     )
 

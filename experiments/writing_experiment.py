@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from config import CONTROLLER, PLANNING, RUNTIME
 from contact_dynamics import (
     DEFAULT_PEN_CONTACT_PARAMETERS,
     apply_write_preload,
@@ -101,7 +102,7 @@ class WritingExperiment:
         telemetry_callback: (
             Callable[[dict[str, Any]], None] | None
         ) = None,
-        telemetry_period_s: float = 0.05,
+        telemetry_period_s: float = RUNTIME.telemetry_period_s,
     ) -> None:
         self.config = config.validate()
 
@@ -184,7 +185,7 @@ class WritingExperiment:
                 surface_size_m=(
                     WRITING_STUDIO.notebook.size_m[:2]
                 ),
-                margin_m=0.02,
+                margin_m=PLANNING.notebook_margin_m,
                 parameters=contact_parameters,
             )
         )
@@ -364,7 +365,9 @@ class WritingExperiment:
                     # 40 Hz visualization while
                     # simulation/control remains
                     # independently timestep-driven.
-                    update_period_s=0.05,
+                    update_period_s=(
+                        RUNTIME.visualization_update_period_s
+                    ),
                 )
             )
 
@@ -647,9 +650,15 @@ class WritingExperiment:
                         desired_angular_velocity_rad_s=(
                             np.zeros(3)
                         ),
-                        position_gain_s_inv=4.0,
-                        orientation_gain_s_inv=4.0,
-                        damping=0.02,
+                        position_gain_s_inv=(
+                            CONTROLLER.position_gain_s_inv
+                        ),
+                        orientation_gain_s_inv=(
+                            CONTROLLER.orientation_gain_s_inv
+                        ),
+                        damping=(
+                            CONTROLLER.differential_ik_damping
+                        ),
                     )
                 )
 
@@ -1309,9 +1318,15 @@ class WritingExperiment:
                 "type": (
                     "hybrid_xy_position_z_force_pose_control"
                 ),
-                "position_gain_s_inv": 4.0,
-                "orientation_gain_s_inv": 4.0,
-                "damping": 0.02,
+                "position_gain_s_inv": (
+                    CONTROLLER.position_gain_s_inv
+                ),
+                "orientation_gain_s_inv": (
+                    CONTROLLER.orientation_gain_s_inv
+                ),
+                "damping": (
+                    CONTROLLER.differential_ik_damping
+                ),
                 "orientation_reference": (
                     "collision_free_home_orientation"
                 ),
