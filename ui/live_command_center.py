@@ -18,10 +18,11 @@ from PySide6.QtWidgets import (
 from robot import RobotState
 from ui.command_center import CommandCenter
 from ui.experiment_worker import ExperimentWorker
+from config import CANONICAL_SVG
 
 
 DEFAULT_SVG = Path(
-    "svg/portfolio_writing1 (8).svg"
+    str(CANONICAL_SVG)
 )
 
 

@@ -1,4 +1,5 @@
 from config.settings import (
+    CANONICAL_SVG,
     CONTROLLER,
     PLANNING,
     RUNTIME,
@@ -6,6 +7,7 @@ from config.settings import (
 )
 
 __all__ = [
+    "CANONICAL_SVG",
     "CONTROLLER",
     "PLANNING",
     "RUNTIME",

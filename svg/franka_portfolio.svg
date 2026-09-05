@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="760"
+    height="240"
+    viewBox="0 0 760 240">
+
+  <!--
+    Canonical Franka Writing Studio portfolio trajectory.
+
+    Deliberately restricted to absolute M/L commands so the file is
+    deterministic and compatible with the project's SVG path parser.
+  -->
+
+  <!-- F -->
+  <path
+d="M 40,190 L 40,45 L 125,45"
+    fill="none"
+    stroke="black"/>
+  <path
+d="M 40,110 L 110,110"
+    fill="none"
+    stroke="black"/>
+
+  <!-- R -->
+  <path
+d="M 155,190 L 155,45 L 220,45 L 245,65 L 245,95 L 220,115 L 155,115"
+    fill="none"
+    stroke="black"/>
+  <path
+d="M 205,115 L 255,190"
+    fill="none"
+    stroke="black"/>
+
+  <!-- A -->
+  <path
+d="M 280,190 L 325,45 L 370,190"
+    fill="none"
+    stroke="black"/>
+  <path
+d="M 298,130 L 352,130"
+    fill="none"
+    stroke="black"/>
+
+  <!-- N -->
+  <path
+d="M 400,190 L 400,45 L 480,190 L 480,45"
+    fill="none"
+    stroke="black"/>
+
+  <!-- K -->
+  <path
+d="M 515,190 L 515,45"
+    fill="none"
+    stroke="black"/>
+  <path
+d="M 515,115 L 585,45"
+    fill="none"
+    stroke="black"/>
+  <path
+d="M 515,115 L 590,190"
+    fill="none"
+    stroke="black"/>
+
+  <!-- A -->
+  <path
+d="M 615,190 L 660,45 L 705,190"
+    fill="none"
+    stroke="black"/>
+  <path
+d="M 633,130 L 687,130"
+    fill="none"
+    stroke="black"/>
+
+  <!-- Small finishing stroke / signature underline -->
+  <path
+d="M 565,215 L 710,215"
+    fill="none"
+    stroke="black"/>
+
+</svg>

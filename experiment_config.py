@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
-from config import RUNTIME
+from config import CANONICAL_SVG, RUNTIME
 
 
 VALID_MODES = ("direct", "gui")
@@ -21,9 +21,7 @@ class ExperimentConfig:
     mode: str = "direct"
     duration_s: float = 2.0
     timestep_s: float = RUNTIME.timestep_s
-    svg_file: Path = Path(
-        "svg/portfolio_writing1 (8).svg"
-    )
+    svg_file: Path = CANONICAL_SVG
     output_dir: Path = Path(
         "artifacts/baseline"
     )
@@ -158,9 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--svg",
         dest="svg_file",
         type=Path,
-        default=Path(
-            "svg/portfolio_writing1 (8).svg"
-        ),
+        default=CANONICAL_SVG,
         help="SVG trajectory file.",
     )
 

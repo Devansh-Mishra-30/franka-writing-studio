@@ -1,6 +1,7 @@
 """Central application settings for the Franka Writing Studio."""
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -31,3 +32,6 @@ RUNTIME = RuntimeSettings()
 PLANNING = PlanningSettings()
 VALIDATION = ValidationSettings()
 CONTROLLER = ControllerSettings()
+
+
+CANONICAL_SVG = Path("svg/franka_portfolio.svg")
