@@ -12,6 +12,7 @@ class TaskStatus(Enum):
     READY = auto()
     RUNNING = auto()
     COMPLETE = auto()
+    STOPPED = auto()
     FAILED = auto()
 
 
@@ -33,6 +34,9 @@ class Task(Protocol):
         ...
 
     def run(self) -> None:
+        ...
+
+    def request_stop(self) -> None:
         ...
 
     def reset(self) -> None:

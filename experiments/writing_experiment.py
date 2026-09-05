@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -87,6 +88,10 @@ class ExperimentResult:
     summary: dict[str, Any]
 
 
+class ExperimentStopped(RuntimeError):
+    """Raised when execution is cooperatively stopped by request."""
+
+
 class WritingExperiment:
     """Coordinate trajectory, model, control, and simulation."""
 
@@ -108,11 +113,34 @@ class WritingExperiment:
         self.telemetry_callback = telemetry_callback
         self.telemetry_period_s = telemetry_period_s
 
+        # Thread-safe cooperative cancellation.
+        #
+        # The experiment normally executes inside a worker
+        # thread while GUI / future PLC commands arrive from
+        # another thread.
+        self._stop_event = threading.Event()
+
         self.mechanics = FrankaMechanics()
 
         self.trajectory = SvgTrajectory(
             self.config.svg_file
         )
+
+    @property
+    def stop_requested(self) -> bool:
+        """Return whether cooperative execution stop was requested."""
+
+        return self._stop_event.is_set()
+
+    def request_stop(self) -> None:
+        """Request a cooperative stop of the running experiment."""
+
+        self._stop_event.set()
+
+    def clear_stop_request(self) -> None:
+        """Clear cancellation state when explicitly resetting the task."""
+
+        self._stop_event.clear()
 
     def build_plan(
         self,
@@ -382,6 +410,11 @@ class WritingExperiment:
             for step_index in range(
                 run_num_steps
             ):
+                if self._stop_event.is_set():
+                    raise ExperimentStopped(
+                        "Writing experiment stopped by request"
+                    )
+
                 cycle_start = (
                     time.perf_counter()
                 )
@@ -1445,14 +1478,14 @@ class WritingExperiment:
             summary["warnings"] = [
                 (
                     "The physical pen is rigidly attached "
-                    "to fer_link8 and contact force is "
-                    "measured, but force regulation is "
-                    "not yet enabled."
+                    "to fer_link8; autonomous tool pickup "
+                    "and return are not implemented."
                 ),
                 (
-                    "Writing currently uses Cartesian "
-                    "pose control; impedance/contact-force "
-                    "control is the next controller stage."
+                    "WRITE normal-force regulation uses "
+                    "velocity-level admittance control; "
+                    "this is not torque-level impedance "
+                    "control."
                 ),
             ]
 
@@ -1474,6 +1507,45 @@ class WritingExperiment:
                 summary_path=summary_path,
                 summary=summary,
             )
+
+        except ExperimentStopped as error:
+            elapsed_s = (
+                time.perf_counter()
+                - setup_start
+            )
+
+            # Preserve partial telemetry from an intentionally
+            # interrupted experiment. A STOP is operational
+            # state, not a simulation/controller failure.
+            if rows:
+                write_csv(
+                    samples_path,
+                    rows,
+                )
+
+            stopped_summary = {
+                "status": "stopped",
+                "reason": str(error),
+                "elapsed_s": float(
+                    elapsed_s
+                ),
+                "completed_sample_count": len(
+                    rows
+                ),
+                "config": (
+                    self.config.to_dict()
+                ),
+            }
+
+            write_json(
+                summary_path,
+                stopped_summary,
+            )
+
+            if failure_path.exists():
+                failure_path.unlink()
+
+            raise
 
         except Exception as error:
             elapsed_s = (

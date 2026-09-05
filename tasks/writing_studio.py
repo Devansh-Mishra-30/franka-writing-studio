@@ -12,6 +12,7 @@ from experiment_config import ExperimentConfig
 from experiments.writing_experiment import (
     INITIAL_JOINT_POSITIONS_RAD,
     ExperimentResult,
+    ExperimentStopped,
     WritingExperiment,
     WritingPlanningResult,
 )
@@ -335,6 +336,11 @@ class WritingStudioTask:
 
         try:
             result = self._experiment.run()
+
+        except ExperimentStopped:
+            self._status = TaskStatus.STOPPED
+            raise
+
         except Exception:
             self._status = TaskStatus.FAILED
             raise
@@ -342,9 +348,17 @@ class WritingStudioTask:
         self._status = TaskStatus.COMPLETE
         return result
 
+    def request_stop(self) -> None:
+        """Request cooperative interruption of active execution."""
+
+        self._experiment.request_stop()
+
     def reset(self) -> None:
         """Return the task to its initial lifecycle state."""
 
         self._planning_result = None
         self._validation_report = None
+
+        self._experiment.clear_stop_request()
+
         self._status = TaskStatus.IDLE

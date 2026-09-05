@@ -1,4 +1,4 @@
-"""Qt worker for running writing experiments without blocking the dashboard."""
+"""Qt worker for PLC-ready Writing Studio execution."""
 
 from __future__ import annotations
 
@@ -8,12 +8,21 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal, Slot
 
 from experiment_config import ExperimentConfig
-from tasks.writing_studio import WritingStudioTask
+from experiments.writing_experiment import ExperimentStopped
+from robot import (
+    CommandRejected,
+    RobotInterface,
+)
 
 
 class ExperimentWorker(QObject):
+    """Run RobotInterface without blocking the Qt dashboard."""
+
     telemetry = Signal(dict)
+    robot_status = Signal(object)
+
     completed = Signal(object)
+    stopped = Signal(object)
     failed = Signal(str)
 
     def __init__(
@@ -36,6 +45,8 @@ class ExperimentWorker(QObject):
         self.full_plan = full_plan
         self.duration_s = duration_s
         self.record_video = record_video
+
+        self.robot: RobotInterface | None = None
 
     @Slot()
     def run(self) -> None:
@@ -61,29 +72,63 @@ class ExperimentWorker(QObject):
                 full_plan=self.full_plan,
             ).validate()
 
-            task = WritingStudioTask(
+            self.robot = RobotInterface(
                 config,
+                status_callback=(
+                    self.robot_status.emit
+                ),
                 telemetry_callback=(
                     self.telemetry.emit
                 ),
                 telemetry_period_s=0.05,
             )
 
-            task.plan()
+            # GUI, CLI, tests and future PLC all use
+            # the same high-level application contract.
+            self.robot.home()
 
-            validation = task.validate()
+            result = (
+                self.robot.start_writing()
+            )
 
-            if not validation.success:
-                raise RuntimeError(
-                    "Writing Studio validation failed: "
-                    f"{validation}"
-                )
+            self.completed.emit(
+                result
+            )
 
-            result = task.run()
+        except ExperimentStopped:
+            status = (
+                self.robot.status
+                if self.robot is not None
+                else None
+            )
 
-            self.completed.emit(result)
+            self.stopped.emit(
+                status
+            )
 
         except Exception:
             self.failed.emit(
                 traceback.format_exc()
             )
+
+    def request_stop(self) -> bool:
+        """Thread-safe cooperative STOP request.
+
+        This method is intentionally callable from the GUI thread.
+        RobotInterface.stop() only updates protected application
+        state and sets the experiment's threading.Event; it does not
+        manipulate Qt widgets.
+        """
+
+        robot = self.robot
+
+        if robot is None:
+            return False
+
+        try:
+            robot.stop()
+
+        except CommandRejected:
+            return False
+
+        return True

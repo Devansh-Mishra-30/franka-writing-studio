@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
 )
 
+from robot import RobotState
 from ui.command_center import CommandCenter
 from ui.experiment_worker import ExperimentWorker
 
@@ -55,6 +56,7 @@ class LiveCommandCenter(CommandCenter):
         self.run_button.clicked.disconnect(self._run)
         self.load_button.clicked.disconnect(self._choose_run)
         self.reset_button.clicked.disconnect(self._reset)
+        self.stop_button.clicked.disconnect(self._stop)
 
         self.run_button.setText(
             "RUN LIVE"
@@ -76,8 +78,12 @@ class LiveCommandCenter(CommandCenter):
             self._reset_live
         )
 
-        # Pause/stop require cooperative cancellation.
-        # Keep them disabled for the Phase 2.5 MVP.
+        self.stop_button.clicked.connect(
+            self._stop_live
+        )
+
+        # Pause remains future work. STOP is now backed by
+        # cooperative cancellation through RobotInterface.
         self.pause_button.setEnabled(False)
         self.stop_button.setEnabled(False)
 
@@ -338,6 +344,14 @@ class LiveCommandCenter(CommandCenter):
             self._on_telemetry
         )
 
+        self.worker.robot_status.connect(
+            self._on_robot_status
+        )
+
+        self.worker.stopped.connect(
+            self._on_stopped
+        )
+
         self.worker.completed.connect(
             self._on_completed
         )
@@ -351,6 +365,10 @@ class LiveCommandCenter(CommandCenter):
         )
 
         self.worker.failed.connect(
+            self.worker_thread.quit
+        )
+
+        self.worker.stopped.connect(
             self.worker_thread.quit
         )
 
@@ -394,6 +412,166 @@ class LiveCommandCenter(CommandCenter):
         )
 
         self.worker_thread.start()
+
+    def _stop_live(self) -> None:
+        """Request cooperative interruption of live execution."""
+
+        if (
+            self.worker is None
+            or self.worker_thread is None
+            or not self.worker_thread.isRunning()
+        ):
+            self.status_label.setText(
+                "No live experiment is running"
+            )
+            return
+
+        accepted = (
+            self.worker.request_stop()
+        )
+
+        if accepted:
+            self.stop_button.setEnabled(
+                False
+            )
+
+            self.status_label.setText(
+                "STOP REQUESTED — waiting for safe acknowledgement"
+            )
+
+        else:
+            self.status_label.setText(
+                "STOP unavailable in current robot state"
+            )
+
+    def _on_robot_status(
+        self,
+        status: object,
+    ) -> None:
+        """Render the authoritative application status."""
+
+        state = getattr(
+            status,
+            "state",
+            None,
+        )
+
+        progress = float(
+            getattr(
+                status,
+                "task_progress",
+                0.0,
+            )
+        )
+
+        progress = max(
+            0.0,
+            min(
+                1.0,
+                progress,
+            ),
+        )
+
+        self.progress.setRange(
+            0,
+            1000,
+        )
+
+        self.progress.setValue(
+            int(
+                round(
+                    progress * 1000.0
+                )
+            )
+        )
+
+        # STOP becomes available only after the application
+        # has acknowledged EXECUTING.
+        self.stop_button.setEnabled(
+            state is RobotState.EXECUTING
+        )
+
+        if state is None:
+            return
+
+        # During EXECUTING the detailed phase/time text from
+        # telemetry is more informative and will take over.
+        if state is RobotState.EXECUTING:
+            self.status_label.setText(
+                "ROBOT — EXECUTING"
+            )
+            return
+
+        if state is RobotState.FAULT:
+            fault = getattr(
+                status,
+                "fault",
+                None,
+            )
+
+            message = (
+                getattr(
+                    fault,
+                    "message",
+                    "Unknown robot fault",
+                )
+                if fault is not None
+                else "Unknown robot fault"
+            )
+
+            self.status_label.setText(
+                f"ROBOT FAULT — {message}"
+            )
+            return
+
+        self.status_label.setText(
+            f"ROBOT — {state.value}"
+        )
+
+    def _on_stopped(
+        self,
+        status: object,
+    ) -> None:
+        """Handle acknowledged cooperative STOP."""
+
+        self.stop_button.setEnabled(
+            False
+        )
+
+        self.progress.setRange(
+            0,
+            1000,
+        )
+
+        progress = float(
+            getattr(
+                status,
+                "task_progress",
+                0.0,
+            )
+            if status is not None
+            else 0.0
+        )
+
+        progress = max(
+            0.0,
+            min(
+                1.0,
+                progress,
+            ),
+        )
+
+        self.progress.setValue(
+            int(
+                round(
+                    progress * 1000.0
+                )
+            )
+        )
+
+        self.status_label.setText(
+            "LIVE EXPERIMENT STOPPED"
+        )
 
     def _on_telemetry(
         self,
@@ -689,6 +867,10 @@ class LiveCommandCenter(CommandCenter):
     def _thread_finished(
         self,
     ) -> None:
+        self.stop_button.setEnabled(
+            False
+        )
+
         self.run_button.setEnabled(
             True
         )
