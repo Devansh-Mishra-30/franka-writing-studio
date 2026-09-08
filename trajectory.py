@@ -179,7 +179,7 @@ class SvgTrajectory:
 
         return {
             "type": (
-                "legacy_piecewise_constant_svg"
+                "svg_cartesian_waypoint_source"
             ),
             "svg_file": str(
                 self.svg_path

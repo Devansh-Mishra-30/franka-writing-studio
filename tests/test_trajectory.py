@@ -41,6 +41,18 @@ class SvgTrajectoryTests(unittest.TestCase):
             later_sample,
         )
 
+    def test_metadata_identifies_svg_as_waypoint_source(self):
+        metadata = self.trajectory.metadata()
+
+        self.assertEqual(
+            metadata["type"],
+            "svg_cartesian_waypoint_source",
+        )
+        self.assertEqual(
+            metadata["num_waypoints"],
+            self.trajectory.num_waypoints,
+        )
+
     def test_negative_time_is_rejected(self):
         with self.assertRaises(ValueError):
             self.trajectory.sample(-0.1)
