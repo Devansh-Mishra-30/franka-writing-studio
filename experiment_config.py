@@ -109,9 +109,21 @@ class ExperimentConfig:
         payload["output_dir"] = str(
             self.output_dir
         )
-        payload["num_steps"] = self.num_steps
-        payload["simulated_duration_s"] = (
+
+        # duration_s controls fixed-duration runs only.
+        # Full-plan runs derive their actual execution duration
+        # from WritingPlan.total_duration_s.
+        payload["requested_duration_s"] = payload.pop(
+            "duration_s"
+        )
+        payload["requested_num_steps"] = self.num_steps
+        payload["requested_simulated_duration_s"] = (
             self.simulated_duration_s
+        )
+        payload["execution_duration_source"] = (
+            "writing_plan"
+            if self.full_plan
+            else "requested_duration"
         )
 
         return payload

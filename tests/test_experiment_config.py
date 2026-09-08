@@ -27,6 +27,39 @@ class ExperimentConfigTests(unittest.TestCase):
                 config.simulated_duration_s,
                 2.0,
             )
+    def test_serialized_full_plan_duration_is_unambiguous(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = ExperimentConfig(
+                duration_s=5.5,
+                timestep_s=0.001,
+                svg_file=self.make_svg(directory),
+                full_plan=True,
+            ).validate()
+
+            payload = config.to_dict()
+
+            self.assertEqual(
+                payload["requested_duration_s"],
+                5.5,
+            )
+            self.assertEqual(
+                payload["requested_num_steps"],
+                5500,
+            )
+            self.assertEqual(
+                payload["requested_simulated_duration_s"],
+                5.5,
+            )
+            self.assertEqual(
+                payload["execution_duration_source"],
+                "writing_plan",
+            )
+            self.assertNotIn("duration_s", payload)
+            self.assertNotIn("num_steps", payload)
+            self.assertNotIn(
+                "simulated_duration_s",
+                payload,
+            )
 
     def test_nonpositive_duration_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
