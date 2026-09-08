@@ -13,6 +13,7 @@ RUN apt-get update && \
         build-essential \
         ca-certificates \
         ffmpeg \
+        git \
         libgl1 \
         libglu1-mesa \
         libglew2.2 \
