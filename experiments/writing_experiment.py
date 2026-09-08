@@ -24,6 +24,7 @@ from force_control import (
 )
 from experiment_config import ExperimentConfig
 from logging_utils import (
+    build_run_provenance,
     prepare_output_directory,
     write_csv,
     write_json,
@@ -240,6 +241,11 @@ class WritingExperiment:
         samples_path = output_dir / "samples.csv"
         summary_path = output_dir / "summary.json"
         failure_path = output_dir / "failure.json"
+
+        provenance = build_run_provenance(
+            repo_root=Path.cwd(),
+            model_path=self.mechanics.urdf_path,
+        )
 
         settings = PyBulletSettings(
             mode=self.config.mode,
@@ -1490,6 +1496,8 @@ class WritingExperiment:
                 },
             }
 
+            summary["provenance"] = provenance
+
             summary["warnings"] = [
                 (
                     "The physical pen is rigidly attached "
@@ -1550,6 +1558,7 @@ class WritingExperiment:
                 "config": (
                     self.config.to_dict()
                 ),
+                "provenance": provenance,
             }
 
             write_json(
@@ -1572,6 +1581,7 @@ class WritingExperiment:
                 failure_path,
                 {
                     "status": "failed",
+                    "provenance": provenance,
                     "error_type": (
                         type(error).__name__
                     ),
