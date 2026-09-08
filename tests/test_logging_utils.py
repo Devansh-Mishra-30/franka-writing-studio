@@ -4,7 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from logging_utils import write_csv, write_json
+from logging_utils import (
+    build_run_provenance,
+    write_csv,
+    write_json,
+)
 
 
 class LoggingUtilsTests(unittest.TestCase):
@@ -53,6 +57,44 @@ class LoggingUtilsTests(unittest.TestCase):
             self.assertEqual(
                 rows[0]["time_s"],
                 "0.0",
+            )
+
+    def test_run_provenance_records_model_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model_path = root / "robot.urdf"
+            model_path.write_text(
+                "robot-model",
+                encoding="utf-8",
+            )
+
+            provenance = build_run_provenance(
+                repo_root=root,
+                model_path=model_path,
+            )
+
+            self.assertIn("created_at_utc", provenance)
+            self.assertEqual(
+                provenance["model"]["path"],
+                "robot.urdf",
+            )
+            self.assertEqual(
+                len(provenance["model"]["sha256"]),
+                64,
+            )
+            self.assertIn(
+                "python_version",
+                provenance["runtime"],
+            )
+            self.assertIn(
+                "numpy",
+                provenance["runtime"]["packages"],
+            )
+            self.assertIsNone(
+                provenance["git"]["commit"],
+            )
+            self.assertIsNone(
+                provenance["git"]["dirty"],
             )
 
     def test_empty_csv_is_rejected(self):
