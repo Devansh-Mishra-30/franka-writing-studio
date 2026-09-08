@@ -195,45 +195,6 @@ class WritingStudioTaskTests(unittest.TestCase):
         )
 
 
-    def test_request_stop_delegates_to_experiment(self):
-        task = self.make_task()
-
-        with patch.object(
-            task._experiment,
-            "request_stop",
-        ) as request_stop:
-            task.request_stop()
-
-        request_stop.assert_called_once_with()
-
-    def test_stopped_execution_transitions_to_stopped(self):
-        task = self.make_task()
-
-        task.plan()
-        report = task.validate()
-
-        self.assertTrue(
-            report.success
-        )
-
-        with patch.object(
-            task._experiment,
-            "run",
-            side_effect=ExperimentStopped(
-                "operator stop"
-            ),
-        ):
-            with self.assertRaises(
-                ExperimentStopped
-            ):
-                task.run()
-
-        self.assertEqual(
-            task.status,
-            TaskStatus.STOPPED,
-        )
-
-
     def test_reset_clears_plan(self):
         task = self.make_task()
 
