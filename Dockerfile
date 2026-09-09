@@ -75,6 +75,9 @@ modules = [
     "pinocchio",
     "imageio",
     "imageio_ffmpeg",
+    "PySide6",
+    "pyqtgraph",
+    "pytest",
 ]
 
 for module_name in modules:

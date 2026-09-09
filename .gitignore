@@ -42,7 +42,3 @@ audit_logs/
 # Track curated figures used in project documentation.
 !docs/media/results/
 !docs/media/results/**
-
-# Track curated figures used in project documentation.
-!docs/media/results/
-!docs/media/results/**
