@@ -11,7 +11,7 @@ class SvgTrajectoryTests(unittest.TestCase):
     def setUpClass(cls):
         cls.trajectory = SvgTrajectory(
             Path(
-                "svg/portfolio_writing1 (8).svg"
+                "svg/hey.svg"
             )
         )
 
