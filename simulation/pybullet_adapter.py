@@ -181,6 +181,28 @@ class PyBulletAdapter:
         self.client_id = client_id
 
         try:
+            if self.settings.mode == "gui":
+                p.configureDebugVisualizer(
+                    p.COV_ENABLE_GUI,
+                    0,
+                    physicsClientId=client_id,
+                )
+                p.configureDebugVisualizer(
+                    p.COV_ENABLE_RGB_BUFFER_PREVIEW,
+                    0,
+                    physicsClientId=client_id,
+                )
+                p.configureDebugVisualizer(
+                    p.COV_ENABLE_DEPTH_BUFFER_PREVIEW,
+                    0,
+                    physicsClientId=client_id,
+                )
+                p.configureDebugVisualizer(
+                    p.COV_ENABLE_SEGMENTATION_MARK_PREVIEW,
+                    0,
+                    physicsClientId=client_id,
+                )
+
             p.resetSimulation(
                 physicsClientId=client_id
             )

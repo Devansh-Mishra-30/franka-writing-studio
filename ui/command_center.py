@@ -211,7 +211,58 @@ class CommandCenter(QMainWindow):
 
         title = QLabel(
             "FRANKA WRITING ROBOT — "
-            "DIGITAL TWIN COMMAND CENTER"
+            "COMMAND CENTER"
+        )
+
+        title.setAlignment(
+            Qt.AlignCenter
+        )
+
+        title.setStyleSheet(
+            "font-size: 18px; "
+            "font-weight: bold; "
+            "padding: 8px;"
+        )
+
+        root_layout.addWidget(
+            title
+        )
+
+        root_layout.addWidget(
+            self._build_controls(),
+            1,
+        )
+
+        root_layout.addWidget(
+            self._build_status_bar()
+        )
+
+        self.resize(
+            390,
+            760,
+        )
+
+        self._build_telemetry_window()
+
+    def _build_telemetry_window(
+        self,
+    ) -> None:
+        self.telemetry_window = QMainWindow(
+            self
+        )
+
+        self.telemetry_window.setWindowTitle(
+            "Franka Writing Robot — "
+            "Live Engineering Telemetry"
+        )
+
+        telemetry_root = QWidget()
+        telemetry_layout = QVBoxLayout(
+            telemetry_root
+        )
+
+        title = QLabel(
+            "LIVE WRITING TELEMETRY"
         )
 
         title.setAlignment(
@@ -224,21 +275,8 @@ class CommandCenter(QMainWindow):
             "padding: 8px;"
         )
 
-        root_layout.addWidget(
+        telemetry_layout.addWidget(
             title
-        )
-
-        main_splitter = QSplitter(
-            Qt.Horizontal
-        )
-
-        root_layout.addWidget(
-            main_splitter,
-            1,
-        )
-
-        main_splitter.addWidget(
-            self._build_controls()
         )
 
         visual_splitter = QSplitter(
@@ -266,20 +304,24 @@ class CommandCenter(QMainWindow):
         )
 
         visual_splitter.setSizes(
-            [520, 300]
+            [560, 320]
         )
 
-        main_splitter.addWidget(
-            visual_splitter
+        telemetry_layout.addWidget(
+            visual_splitter,
+            1,
         )
 
-        main_splitter.setSizes(
-            [320, 1180]
+        self.telemetry_window.setCentralWidget(
+            telemetry_root
         )
 
-        root_layout.addWidget(
-            self._build_status_bar()
+        self.telemetry_window.resize(
+            1200,
+            900,
         )
+
+        self.telemetry_window.show()
 
     def _panel(
         self,
