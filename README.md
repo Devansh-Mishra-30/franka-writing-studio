@@ -1,6 +1,6 @@
 # Franka Writing Studio — Physics-Based Robotics Digital Twin
 
-[![CI](https://github.com/Devansh-Mishra-30/Writing_robot_with_vid/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Devansh-Mishra-30/Writing_robot_with_vid/actions/workflows/ci.yml)
+[![CI](https://github.com/Devansh-Mishra-30/franka-writing-studio/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Devansh-Mishra-30/franka-writing-studio/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](Dockerfile)
 
@@ -105,6 +105,12 @@ Primary boundaries:
 - `verification/`: Pinocchio/MATLAB and model-mismatch workflows
 - `learning/`: offline residual-model training and evaluation
 - `tests/`: numerical, unit, component, and lifecycle tests
+
+## Documentation
+
+- [System architecture](docs/architecture.md)
+- [Robot task interface](docs/robot_task_interface.md)
+- [Validation and reproducibility](docs/validation.md)
 
 ## Writing Pipeline
 
@@ -230,7 +236,7 @@ Requirements: Git, Docker, and WSLg or an X server for the GUI.
 
 ```bash
 git clone --recurse-submodules \
-  https://github.com/Devansh-Mishra-30/Writing_robot_with_vid.git
+  https://github.com/Devansh-Mishra-30/franka-writing-studio.git
 cd Writing_robot_with_vid
 
 ./wr build
