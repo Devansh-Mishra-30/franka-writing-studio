@@ -1,48 +1,270 @@
+"""Trajectory generation for the writing robot."""
+
+from __future__ import annotations
+
 import math
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
+
 import numpy as np
-from parse_svg_path import parse_svg_for_paths, scale_coords_to_arena 
+
+from parse_svg_path import (
+    parse_svg_for_paths,
+    scale_coords_to_arena,
+)
 
 
-def circle_trajectory(t:float) -> np.array:
+class SvgTrajectory:
+    """Preprocessed, piecewise-constant legacy SVG trajectory.
+
+    This class preserves the original trajectory behavior:
+    one waypoint is selected every 0.1 seconds and the final waypoint is
+    held after the path ends.
+
+    The Phase-2 writing planner uses ``positions_m`` to build a smooth
+    timed Cartesian trajectory from these preprocessed SVG waypoints.
     """
 
-    Returns desired position at time t (seconds) to make circular trajectory
-    with end effector.
-    """
-    r = 0.15  # circle radius (meters)
-    w = 0.50  # rad/s
+    def __init__(
+        self,
+        svg_path: Path | str,
+        *,
+        waypoint_interval_s: float = 0.1,
+        dx_m: float = 0.4,
+        dy_m: float = 0.4,
+        x_min_m: float = 0.2,
+        z_min_m: float = 0.635,
+    ) -> None:
+        self.svg_path = Path(svg_path)
 
-    Y_des = np.array([r* math.cos(w*t) + 0.4, r*math.sin(w*t), 0.62,
-                      -3.14, 0, 0]) # X, Y, Z, roll, pitch, yaw
-    return Y_des
+        self.waypoint_interval_s = float(
+            waypoint_interval_s
+        )
+
+        if not self.svg_path.is_file():
+            raise FileNotFoundError(
+                f"SVG file does not exist: {self.svg_path}"
+            )
+
+        if self.waypoint_interval_s <= 0.0:
+            raise ValueError(
+                "waypoint_interval_s must be greater than zero"
+            )
+
+        raw_coordinates = parse_svg_for_paths(
+            str(self.svg_path)
+        )
+
+        if len(raw_coordinates) == 0:
+            raise ValueError(
+                f"No trajectory coordinates found in "
+                f"{self.svg_path}"
+            )
+
+        scaled_coordinates = scale_coords_to_arena(
+            raw_coordinates,
+            dx=dx_m,
+            dy=dy_m,
+            x_min=x_min_m,
+            z_min=z_min_m,
+        )
+
+        self._positions_m = np.asarray(
+            scaled_coordinates,
+            dtype=float,
+        )
+
+        if self._positions_m.ndim != 2:
+            raise ValueError(
+                "scaled SVG coordinates must be "
+                "two-dimensional"
+            )
+
+        if self._positions_m.shape[1] != 3:
+            raise ValueError(
+                "scaled SVG coordinates must contain x, y, z"
+            )
+
+        if not np.all(
+            np.isfinite(self._positions_m)
+        ):
+            raise ValueError(
+                "scaled SVG coordinates contain invalid values"
+            )
+
+        # Preserve the legacy fixed downward orientation.
+        self._orientation_rpy_rad = np.array(
+            [-3.14, 0.0, 0.0],
+            dtype=float,
+        )
+
+    @property
+    def num_waypoints(self) -> int:
+        """Number of preprocessed SVG waypoints."""
+
+        return int(
+            self._positions_m.shape[0]
+        )
+
+    @property
+    def positions_m(self) -> np.ndarray:
+        """Return a copy of the Cartesian SVG waypoints."""
+
+        return self._positions_m.copy()
+
+    @property
+    def final_waypoint_time_s(self) -> float:
+        """Time at which the final legacy waypoint becomes active."""
+
+        return (
+            max(
+                0,
+                self.num_waypoints - 1,
+            )
+            * self.waypoint_interval_s
+        )
+
+    def index_at(
+        self,
+        time_s: float,
+    ) -> int:
+        """Return the active legacy waypoint index."""
+
+        if not math.isfinite(time_s):
+            raise ValueError(
+                "time_s must be finite"
+            )
+
+        if time_s < 0.0:
+            raise ValueError(
+                "time_s must be nonnegative"
+            )
+
+        index = int(
+            math.floor(
+                time_s
+                / self.waypoint_interval_s
+            )
+        )
+
+        return min(
+            index,
+            self.num_waypoints - 1,
+        )
+
+    def sample(
+        self,
+        time_s: float,
+    ) -> np.ndarray:
+        """Return desired [x, y, z, roll, pitch, yaw]."""
+
+        index = self.index_at(
+            time_s
+        )
+
+        return np.concatenate(
+            (
+                self._positions_m[
+                    index
+                ].copy(),
+                self._orientation_rpy_rad.copy(),
+            )
+        )
+
+    def metadata(
+        self,
+    ) -> dict[str, Any]:
+        """Return trajectory metadata for experiment logs."""
+
+        return {
+            "type": (
+                "svg_cartesian_waypoint_source"
+            ),
+            "svg_file": str(
+                self.svg_path
+            ),
+            "num_waypoints": (
+                self.num_waypoints
+            ),
+            "waypoint_interval_s": (
+                self.waypoint_interval_s
+            ),
+            "final_waypoint_time_s": (
+                self.final_waypoint_time_s
+            ),
+        }
 
 
-def point_trajectory(t) -> np.array:
-    """
-    Returns singular point trajectory
-    """
+def circle_trajectory(
+    time_s: float,
+) -> np.ndarray:
+    """Return the existing circular reference trajectory."""
 
-    return np.array([0.3, 0.0 ,0.55,
-                     -3.14, 0, 0])
+    radius_m = 0.15
+    angular_speed_rad_s = 0.50
+
+    return np.array(
+        [
+            radius_m
+            * math.cos(
+                angular_speed_rad_s
+                * time_s
+            )
+            + 0.4,
+            radius_m
+            * math.sin(
+                angular_speed_rad_s
+                * time_s
+            ),
+            0.62,
+            -3.14,
+            0.0,
+            0.0,
+        ],
+        dtype=float,
+    )
 
 
-def svg_trajectory(t, svg_path) -> np.array:
-    """
-    Returns svg trajectroy generated from svg file svg_path
-    """
+def point_trajectory(
+    time_s: float,
+) -> np.ndarray:
+    """Return the existing fixed-point reference."""
 
-    dx = 0.4
-    dy = 0.4
-    x_min= 0.2
-    z_min = 0.635
+    del time_s
 
-    svg_coords = parse_svg_for_paths(svg_path)
-    scaled_coords = np.array(scale_coords_to_arena(svg_coords, dx=dx, dy=dy, x_min=x_min, z_min=z_min))
+    return np.array(
+        [
+            0.3,
+            0.0,
+            0.55,
+            -3.14,
+            0.0,
+            0.0,
+        ],
+        dtype=float,
+    )
 
-    i = math.floor(t / 0.1) # Calculate the index for every 0.1 seconds
 
-    if i < len(scaled_coords):
-    
-        return np.concatenate((np.array(scaled_coords[i]), np.array([-3.14, 0, 0])))
-    
-    return np.concatenate((np.array(scaled_coords[-1]), np.array([-3.14, 0, 0])))
+@lru_cache(maxsize=16)
+def _cached_svg_trajectory(
+    svg_path: str,
+) -> SvgTrajectory:
+    """Cache preprocessed trajectories for legacy callers."""
+
+    return SvgTrajectory(
+        Path(svg_path)
+    )
+
+
+def svg_trajectory(
+    time_s: float,
+    svg_path: Path | str,
+) -> np.ndarray:
+    """Backward-compatible SVG trajectory function."""
+
+    return _cached_svg_trajectory(
+        str(svg_path)
+    ).sample(
+        time_s
+    )

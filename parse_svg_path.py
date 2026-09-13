@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
 import numpy as np
-from matplotlib import pyplot as plt
 
 
 dx = 0.10
@@ -147,18 +146,6 @@ def scale_coords_to_arena(coords, dx=dx , dy=dy, x_min=x_min, z_min=z_min):
     xscaled = xscaled - np.min(xscaled) + x_min
     zscaled = zdesigned + z_min
     scaled_coords = np.vstack((xscaled,yscaled,zscaled)).transpose()
-    print(scaled_coords)
     return scaled_coords
     
-    
-
-
-if __name__=='__main__':
-
-    svg_file = 'svg/swirl.svg'
-
-    svg_coords = parse_svg_for_paths(svg_file)
-    scaled_coords = scale_coords_to_arena(svg_coords)
-
-
     

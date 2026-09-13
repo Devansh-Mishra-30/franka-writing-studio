@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<robot name="writing_pen">
+
+  <link name="pen">
+    <inertial>
+      <origin xyz="0 0 0.060" rpy="0 0 0"/>
+      <mass value="0.010"/>
+      <inertia
+        ixx="1.2033e-05"
+        ixy="0"
+        ixz="0"
+        iyy="1.2033e-05"
+        iyz="0"
+        izz="8.0e-08"/>
+    </inertial>
+
+    <!-- Visible 120 mm pen body -->
+    <visual>
+      <origin xyz="0 0 0.060" rpy="0 0 0"/>
+      <geometry>
+        <cylinder
+          radius="0.004"
+          length="0.120"/>
+      </geometry>
+      <material name="pen_blue">
+        <color rgba="0.10 0.20 0.85 1.0"/>
+      </material>
+    </visual>
+
+    <!-- Physical barrel stops 4 mm before the nominal tip -->
+    <collision>
+      <origin xyz="0 0 0.058" rpy="0 0 0"/>
+      <geometry>
+        <cylinder
+          radius="0.004"
+          length="0.116"/>
+      </geometry>
+    </collision>
+
+    <!-- Small physical writing tip.
+         Sphere center = 118 mm.
+         Radius = 2 mm.
+         Lowest/distal point = exactly 120 mm. -->
+    <collision>
+      <origin xyz="0 0 0.118" rpy="0 0 0"/>
+      <geometry>
+        <sphere radius="0.002"/>
+      </geometry>
+    </collision>
+  </link>
+
+</robot>

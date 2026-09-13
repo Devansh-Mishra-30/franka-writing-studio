@@ -13,6 +13,7 @@ RUN apt-get update && \
         build-essential \
         ca-certificates \
         ffmpeg \
+        git \
         libgl1 \
         libglu1-mesa \
         libglew2.2 \
@@ -25,6 +26,23 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 # Create an isolated Python environment.
+# Runtime libraries required by Qt / PySide6 / pyqtgraph.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libegl1 \
+        libgl1 \
+        libxkbcommon-x11-0 \
+        libxcb-cursor0 \
+        libxcb-icccm4 \
+        libxcb-image0 \
+        libxcb-keysyms1 \
+        libxcb-render-util0 \
+        libxcb-xinerama0 \
+        libxcb-randr0 \
+        libxcb-shape0 \
+        libxcb-xfixes0 && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN python3 -m venv /opt/venv
 
 # Make the virtual environment's Python and pip the default.
@@ -57,6 +75,9 @@ modules = [
     "pinocchio",
     "imageio",
     "imageio_ffmpeg",
+    "PySide6",
+    "pyqtgraph",
+    "pytest",
 ]
 
 for module_name in modules:

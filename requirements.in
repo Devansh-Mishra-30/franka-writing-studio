@@ -5,3 +5,6 @@ pybullet
 pin
 imageio
 imageio-ffmpeg
+PySide6
+pyqtgraph
+pytest
