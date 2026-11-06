@@ -39,6 +39,7 @@ class ExperimentWorker(QObject):
         duration_s: float = 10.0,
         record_video: bool = False,
         keep_simulator_open: bool = False,
+        camera_preset: str = "isometric",
     ) -> None:
         super().__init__()
 
@@ -57,6 +58,7 @@ class ExperimentWorker(QObject):
         self.duration_s = duration_s
         self.record_video = record_video
         self.keep_simulator_open = keep_simulator_open
+        self.camera_preset = camera_preset
 
         self.robot: RobotInterface | None = None
 
@@ -83,6 +85,7 @@ class ExperimentWorker(QObject):
                     self.keep_simulator_open
                     and self.show_robot
                 ),
+                camera_preset=self.camera_preset,
                 speed_scale=self.speed_scale,
                 full_plan=self.full_plan,
                 drawing=self.drawing,

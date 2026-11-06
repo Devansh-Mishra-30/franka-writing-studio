@@ -358,6 +358,24 @@ class WritingStudioTask:
         """Release a retained simulator runtime."""
         self._experiment.shutdown_simulator()
 
+    def set_camera_preset(
+        self,
+        preset: str,
+    ) -> None:
+        """Apply a GUI camera preset."""
+        self._experiment.set_camera_preset(
+            preset
+        )
+
+    def adjust_camera(
+        self,
+        **kwargs,
+    ) -> None:
+        """Adjust the active GUI camera."""
+        self._experiment.adjust_camera(
+            **kwargs
+        )
+
     def reset(self) -> None:
         """Return the task to its initial lifecycle state."""
 

@@ -14,6 +14,13 @@ from drawing import DrawingDocument
 
 VALID_MODES = ("direct", "gui")
 
+VALID_CAMERA_PRESETS = (
+    "isometric",
+    "top",
+    "notebook",
+    "robot",
+)
+
 
 @dataclass(frozen=True)
 class ExperimentConfig:
@@ -40,6 +47,9 @@ class ExperimentConfig:
     # GUI/demo runs may retain the simulator after successful
     # completion so the final scene can be inspected.
     keep_simulator_open: bool = False
+
+    # Initial PyBullet debug-camera composition for GUI/demo runs.
+    camera_preset: str = "isometric"
 
     seed: int = 0
 
@@ -119,6 +129,13 @@ class ExperimentConfig:
         ):
             raise ValueError(
                 "keep_simulator_open requires mode='gui'"
+            )
+
+        if self.camera_preset not in VALID_CAMERA_PRESETS:
+            raise ValueError(
+                "camera_preset must be one of "
+                f"{VALID_CAMERA_PRESETS}; "
+                f"received {self.camera_preset!r}"
             )
 
         return self

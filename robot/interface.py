@@ -377,6 +377,24 @@ class RobotInterface:
         """Release retained simulation resources without changing state."""
         self._task.shutdown_simulator()
 
+    def set_camera_preset(
+        self,
+        preset: str,
+    ) -> None:
+        """Apply a camera preset to the active GUI simulation."""
+        self._task.set_camera_preset(
+            preset
+        )
+
+    def adjust_camera(
+        self,
+        **kwargs,
+    ) -> None:
+        """Adjust the active GUI simulation camera."""
+        self._task.adjust_camera(
+            **kwargs
+        )
+
     # --------------------------------------------------------
     # Telemetry → authoritative status
     # --------------------------------------------------------

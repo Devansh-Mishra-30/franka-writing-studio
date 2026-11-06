@@ -165,6 +165,47 @@ class WritingExperiment:
         simulator.shutdown()
         self._simulator = None
 
+    def set_camera_preset(
+        self,
+        preset: str,
+    ) -> None:
+        """Apply a camera preset to the active/retained GUI simulator."""
+        simulator = self._simulator
+
+        if simulator is None:
+            raise RuntimeError(
+                "No active PyBullet simulator"
+            )
+
+        simulator.set_camera_preset(
+            preset
+        )
+
+    def adjust_camera(
+        self,
+        *,
+        yaw_delta_deg: float = 0.0,
+        pitch_delta_deg: float = 0.0,
+        zoom_factor: float = 1.0,
+        pan_x_m: float = 0.0,
+        pan_y_m: float = 0.0,
+    ) -> None:
+        """Adjust the active/retained GUI camera."""
+        simulator = self._simulator
+
+        if simulator is None:
+            raise RuntimeError(
+                "No active PyBullet simulator"
+            )
+
+        simulator.adjust_camera(
+            yaw_delta_deg=yaw_delta_deg,
+            pitch_delta_deg=pitch_delta_deg,
+            zoom_factor=zoom_factor,
+            pan_x_m=pan_x_m,
+            pan_y_m=pan_y_m,
+        )
+
     def build_plan(
         self,
         initial_pen_tip_position_m: np.ndarray,
@@ -340,6 +381,11 @@ class WritingExperiment:
 
         try:
             simulator.configure()
+
+            if self.config.mode == "gui":
+                simulator.set_camera_preset(
+                    self.config.camera_preset
+                )
 
             simulator.reset(
                 INITIAL_JOINT_POSITIONS_RAD

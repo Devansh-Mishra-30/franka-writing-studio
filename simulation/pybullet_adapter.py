@@ -623,6 +623,118 @@ class PyBulletAdapter:
             physicsClientId=self.client_id
         )
 
+    def set_camera_preset(
+        self,
+        preset: str,
+    ) -> None:
+        """Apply one of the portfolio/debug camera compositions."""
+        if self.client_id is None:
+            raise RuntimeError(
+                "PyBullet adapter is not configured"
+            )
+
+        if self.settings.mode != "gui":
+            raise RuntimeError(
+                "Camera controls require PyBullet GUI mode"
+            )
+
+        presets = {
+            # Full robot + desk + notebook.
+            "isometric": {
+                "distance": 1.00,
+                "yaw": -20.0,
+                "pitch": -40.0,
+                "target": [0.42, 0.00, 0.38],
+            },
+            # Paper-centric overhead inspection.
+            "top": {
+                "distance": 0.72,
+                "yaw": 0.0,
+                "pitch": -89.0,
+                "target": [0.45, 0.00, 0.52],
+            },
+            # Close writing/contact composition.
+            "notebook": {
+                "distance": 0.58,
+                "yaw": -20.0,
+                "pitch": -67.0,
+                "target": [0.45, 0.00, 0.52],
+            },
+            # Wider view emphasizing the manipulator.
+            "robot": {
+                "distance": 1.35,
+                "yaw": -25.0,
+                "pitch": -28.0,
+                "target": [0.28, 0.00, 0.40],
+            },
+        }
+
+        try:
+            camera = presets[preset]
+        except KeyError as error:
+            raise ValueError(
+                f"Unknown camera preset: {preset!r}"
+            ) from error
+
+        p.resetDebugVisualizerCamera(
+            cameraDistance=camera["distance"],
+            cameraYaw=camera["yaw"],
+            cameraPitch=camera["pitch"],
+            cameraTargetPosition=camera["target"],
+            physicsClientId=self.client_id,
+        )
+
+    def adjust_camera(
+        self,
+        *,
+        yaw_delta_deg: float = 0.0,
+        pitch_delta_deg: float = 0.0,
+        zoom_factor: float = 1.0,
+        pan_x_m: float = 0.0,
+        pan_y_m: float = 0.0,
+    ) -> None:
+        """Nudge the current GUI camera without modifier-key mouse input."""
+        if self.client_id is None:
+            raise RuntimeError(
+                "PyBullet adapter is not configured"
+            )
+
+        if self.settings.mode != "gui":
+            raise RuntimeError(
+                "Camera controls require PyBullet GUI mode"
+            )
+
+        if zoom_factor <= 0.0:
+            raise ValueError(
+                "zoom_factor must be positive"
+            )
+
+        camera = p.getDebugVisualizerCamera(
+            physicsClientId=self.client_id
+        )
+
+        yaw = float(camera[8]) + yaw_delta_deg
+        pitch = float(camera[9]) + pitch_delta_deg
+        distance = max(
+            0.15,
+            min(
+                5.0,
+                float(camera[10]) * zoom_factor,
+            ),
+        )
+
+        target = list(camera[11])
+        target[0] += pan_x_m
+        target[1] += pan_y_m
+
+        p.resetDebugVisualizerCamera(
+            cameraDistance=distance,
+            cameraYaw=yaw,
+            cameraPitch=pitch,
+            cameraTargetPosition=target,
+            physicsClientId=self.client_id,
+        )
+
     def stop_video_recording(self) -> None:
         """Finalize an active PyBullet video without closing the GUI."""
         if (

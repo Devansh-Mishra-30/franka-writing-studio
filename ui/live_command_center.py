@@ -57,6 +57,10 @@ class LiveCommandCenter(CommandCenter):
         # the worker QObject/thread are cleaned up.
         self._retained_robot: RobotInterface | None = None
 
+        # Camera composition used for the next GUI run and for
+        # preset resets during an active/retained simulation.
+        self._selected_camera_preset = "isometric"
+
         self._configure_live_controls()
         self._clear_live_data()
         self.resize(500, 980)
@@ -147,6 +151,14 @@ class LiveCommandCenter(CommandCenter):
             True
         )
 
+        self.keep_simulator_open_checkbox = QCheckBox(
+            "Keep PyBullet open after completion"
+        )
+
+        self.keep_simulator_open_checkbox.setChecked(
+            True
+        )
+
         experiment_layout.addWidget(
             self.show_robot_checkbox,
             4,
@@ -163,12 +175,314 @@ class LiveCommandCenter(CommandCenter):
             2,
         )
 
+        experiment_layout.addWidget(
+            self.keep_simulator_open_checkbox,
+            6,
+            0,
+            1,
+            2,
+        )
+
         run_box = self.run_button.parentWidget()
         controls_panel = run_box.parentWidget()
         controls_panel.layout().insertWidget(
             1,
             self._build_input_panel(),
         )
+
+        controls_panel.layout().insertWidget(
+            2,
+            self._build_camera_panel(),
+        )
+
+    def _build_camera_panel(self) -> QGroupBox:
+        """Build camera controls that avoid PyBullet modifier-key gestures."""
+        panel = QGroupBox("CAMERA")
+        layout = QVBoxLayout(panel)
+
+        preset_label = QLabel(
+            "Preset"
+        )
+        layout.addWidget(
+            preset_label
+        )
+
+        preset_row = QHBoxLayout()
+
+        self.camera_isometric_button = QPushButton(
+            "Isometric"
+        )
+        self.camera_top_button = QPushButton(
+            "Top"
+        )
+        self.camera_notebook_button = QPushButton(
+            "Notebook"
+        )
+        self.camera_robot_button = QPushButton(
+            "Robot"
+        )
+
+        for button in (
+            self.camera_isometric_button,
+            self.camera_top_button,
+            self.camera_notebook_button,
+            self.camera_robot_button,
+        ):
+            preset_row.addWidget(
+                button
+            )
+
+        layout.addLayout(
+            preset_row
+        )
+
+        orbit_label = QLabel(
+            "Orbit / Pitch / Zoom"
+        )
+        layout.addWidget(
+            orbit_label
+        )
+
+        orbit_row = QHBoxLayout()
+
+        self.camera_orbit_left_button = QPushButton(
+            "↶"
+        )
+        self.camera_orbit_right_button = QPushButton(
+            "↷"
+        )
+        self.camera_pitch_up_button = QPushButton(
+            "Tilt ↑"
+        )
+        self.camera_pitch_down_button = QPushButton(
+            "Tilt ↓"
+        )
+        self.camera_zoom_in_button = QPushButton(
+            "Zoom +"
+        )
+        self.camera_zoom_out_button = QPushButton(
+            "Zoom −"
+        )
+
+        for button in (
+            self.camera_orbit_left_button,
+            self.camera_orbit_right_button,
+            self.camera_pitch_up_button,
+            self.camera_pitch_down_button,
+            self.camera_zoom_in_button,
+            self.camera_zoom_out_button,
+        ):
+            orbit_row.addWidget(
+                button
+            )
+
+        layout.addLayout(
+            orbit_row
+        )
+
+        pan_label = QLabel(
+            "Pan"
+        )
+        layout.addWidget(
+            pan_label
+        )
+
+        pan_row = QHBoxLayout()
+
+        self.camera_pan_left_button = QPushButton(
+            "←"
+        )
+        self.camera_pan_right_button = QPushButton(
+            "→"
+        )
+        self.camera_pan_up_button = QPushButton(
+            "↑"
+        )
+        self.camera_pan_down_button = QPushButton(
+            "↓"
+        )
+
+        for button in (
+            self.camera_pan_left_button,
+            self.camera_pan_right_button,
+            self.camera_pan_up_button,
+            self.camera_pan_down_button,
+        ):
+            pan_row.addWidget(
+                button
+            )
+
+        layout.addLayout(
+            pan_row
+        )
+
+        self.camera_isometric_button.clicked.connect(
+            lambda _checked=False:
+            self._apply_camera_preset(
+                "isometric"
+            )
+        )
+
+        self.camera_top_button.clicked.connect(
+            lambda _checked=False:
+            self._apply_camera_preset(
+                "top"
+            )
+        )
+
+        self.camera_notebook_button.clicked.connect(
+            lambda _checked=False:
+            self._apply_camera_preset(
+                "notebook"
+            )
+        )
+
+        self.camera_robot_button.clicked.connect(
+            lambda _checked=False:
+            self._apply_camera_preset(
+                "robot"
+            )
+        )
+
+        self.camera_orbit_left_button.clicked.connect(
+            lambda _checked=False:
+            self._adjust_camera(
+                yaw_delta_deg=-10.0
+            )
+        )
+
+        self.camera_orbit_right_button.clicked.connect(
+            lambda _checked=False:
+            self._adjust_camera(
+                yaw_delta_deg=10.0
+            )
+        )
+
+        self.camera_pitch_up_button.clicked.connect(
+            lambda _checked=False:
+            self._adjust_camera(
+                pitch_delta_deg=7.5
+            )
+        )
+
+        self.camera_pitch_down_button.clicked.connect(
+            lambda _checked=False:
+            self._adjust_camera(
+                pitch_delta_deg=-7.5
+            )
+        )
+
+        self.camera_zoom_in_button.clicked.connect(
+            lambda _checked=False:
+            self._adjust_camera(
+                zoom_factor=0.85
+            )
+        )
+
+        self.camera_zoom_out_button.clicked.connect(
+            lambda _checked=False:
+            self._adjust_camera(
+                zoom_factor=1.18
+            )
+        )
+
+        self.camera_pan_left_button.clicked.connect(
+            lambda _checked=False:
+            self._adjust_camera(
+                pan_y_m=0.04
+            )
+        )
+
+        self.camera_pan_right_button.clicked.connect(
+            lambda _checked=False:
+            self._adjust_camera(
+                pan_y_m=-0.04
+            )
+        )
+
+        self.camera_pan_up_button.clicked.connect(
+            lambda _checked=False:
+            self._adjust_camera(
+                pan_x_m=0.04
+            )
+        )
+
+        self.camera_pan_down_button.clicked.connect(
+            lambda _checked=False:
+            self._adjust_camera(
+                pan_x_m=-0.04
+            )
+        )
+
+        return panel
+
+    def _camera_robot(
+        self,
+    ) -> RobotInterface | None:
+        """Return the live or retained robot owning the GUI simulator."""
+        if (
+            self.worker is not None
+            and self.worker.robot is not None
+        ):
+            return self.worker.robot
+
+        return self._retained_robot
+
+    def _apply_camera_preset(
+        self,
+        preset: str,
+    ) -> None:
+        """Select a preset and apply it immediately when possible."""
+        self._selected_camera_preset = preset
+
+        robot = self._camera_robot()
+
+        if robot is None:
+            self.status_label.setText(
+                "Camera preset selected: "
+                f"{preset.upper()} — applies on next run"
+            )
+            return
+
+        try:
+            robot.set_camera_preset(
+                preset
+            )
+
+        except RuntimeError:
+            self.status_label.setText(
+                "Camera preset selected: "
+                f"{preset.upper()} — simulator not ready yet"
+            )
+            return
+
+        self.status_label.setText(
+            "CAMERA — "
+            f"{preset.upper()}"
+        )
+
+    def _adjust_camera(
+        self,
+        **kwargs,
+    ) -> None:
+        """Nudge the live/retained PyBullet camera."""
+        robot = self._camera_robot()
+
+        if robot is None:
+            self.status_label.setText(
+                "Camera controls require an active PyBullet window"
+            )
+            return
+
+        try:
+            robot.adjust_camera(
+                **kwargs
+            )
+
+        except RuntimeError:
+            self.status_label.setText(
+                "PyBullet camera is not ready"
+            )
 
     def _build_input_panel(self) -> QGroupBox:
         panel = QGroupBox("INPUT")
@@ -546,7 +860,11 @@ class LiveCommandCenter(CommandCenter):
             full_plan=full_plan,
             duration_s=5.5,
             record_video=record_video,
-            keep_simulator_open=show_robot,
+            keep_simulator_open=(
+                show_robot
+                and self.keep_simulator_open_checkbox.isChecked()
+            ),
+            camera_preset=self._selected_camera_preset,
         )
 
         self.worker.moveToThread(
