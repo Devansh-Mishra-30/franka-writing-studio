@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, Signal, Slot
 
 from config import RUNTIME
+from drawing import DrawingDocument
 from experiment_config import ExperimentConfig
 from experiments.writing_experiment import ExperimentStopped
 from robot import (
@@ -30,7 +31,7 @@ class ExperimentWorker(QObject):
         self,
         *,
         svg_file: Path | None = None,
-        drawing: object | None = None,
+        drawing: DrawingDocument | None = None,
         output_dir: Path,
         speed_scale: float,
         show_robot: bool,
@@ -70,11 +71,6 @@ class ExperimentWorker(QObject):
                 mode=mode,
                 duration_s=self.duration_s,
                 timestep_s=RUNTIME.timestep_s,
-                svg_file=(
-                    self.svg_file
-                    if self.svg_file is not None
-                    else Path("unused")
-                ),
                 output_dir=self.output_dir,
                 realtime=self.show_robot,
                 record_video=(
@@ -84,6 +80,11 @@ class ExperimentWorker(QObject):
                 speed_scale=self.speed_scale,
                 full_plan=self.full_plan,
                 drawing=self.drawing,
+                **(
+                    {"svg_file": self.svg_file}
+                    if self.svg_file is not None
+                    else {}
+                ),
             ).validate()
 
             self.robot = RobotInterface(

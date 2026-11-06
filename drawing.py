@@ -9,11 +9,13 @@ validation, and execution pipeline.
 
 Coordinate contract
 -------------------
-- Stroke points are 2D, in the source coordinate system
-  (pixels for touchpad, SVG user units for SVG import).
+- Stroke points are 2D display-space coordinates: X increases to the
+  right and Y increases down. They remain in source units (pixels for
+  the drawing pad, SVG user units for SVG import).
 - No physical units are implied at the DrawingDocument layer.
 - drawing_to_waypoints() maps strokes into 3D pen-tip
-  waypoints with explicit Z encoding for pen-up / pen-down.
+  waypoints. The planar axes are mapped to the established notebook
+  convention and Z explicitly encodes pen-up / pen-down in metres.
 - Downstream fit_xy_path_to_surface() handles scaling and
   centering onto the physical notebook.
 """
@@ -42,9 +44,11 @@ class Stroke:
     points: np.ndarray  # shape (M, 2), dtype float
 
     def __post_init__(self) -> None:
-        pts = np.asarray(
+        pts = np.array(
             self.points,
             dtype=float,
+            copy=True,
+            order="C",
         )
 
         if pts.ndim != 2 or pts.shape[1] != 2:
@@ -63,7 +67,11 @@ class Stroke:
                 "Stroke points contain non-finite values"
             )
 
-        # Frozen dataclass: coerce to contiguous float array.
+        # A frozen dataclass containing a mutable ndarray is not truly
+        # immutable. Own the storage and make it read-only so a drawing
+        # cannot change while a worker thread is planning it.
+        pts.setflags(write=False)
+
         object.__setattr__(
             self,
             "points",
@@ -97,10 +105,42 @@ class DrawingDocument:
                 "at least one stroke"
             )
 
+        if not all(
+            isinstance(stroke, Stroke)
+            for stroke in self.strokes
+        ):
+            raise TypeError(
+                "DrawingDocument strokes must all be Stroke instances"
+            )
+
         if not self.source:
             raise ValueError(
                 "DrawingDocument source must "
                 "not be empty"
+            )
+
+        if self.canvas_size is not None:
+            canvas_size = np.asarray(
+                self.canvas_size,
+                dtype=float,
+            )
+
+            if (
+                canvas_size.shape != (2,)
+                or not np.all(np.isfinite(canvas_size))
+                or np.any(canvas_size <= 0.0)
+            ):
+                raise ValueError(
+                    "canvas_size must contain two positive finite values"
+                )
+
+            object.__setattr__(
+                self,
+                "canvas_size",
+                (
+                    float(canvas_size[0]),
+                    float(canvas_size[1]),
+                ),
             )
 
     @property
@@ -140,6 +180,8 @@ class DrawingDocument:
             "stroke_count": self.stroke_count,
             "total_points": self.total_points,
             "canvas_size": self.canvas_size,
+            "coordinate_system": "display_xy_right_down",
+            "coordinate_units": "source_units",
         }
 
 
@@ -156,8 +198,15 @@ def drawing_to_waypoints(
 ) -> np.ndarray:
     """Convert a DrawingDocument to (N, 3) pen-tip waypoints.
 
-    The returned array uses the drawing's 2D coordinates for XY
-    and encodes pen state in Z:
+    The returned array maps display-space coordinates into the
+    established notebook-plane convention used by the v1 SVG path:
+
+    - notebook X = -display Y
+    - notebook Y = -display X
+
+    Planar values are still source units at this boundary. The
+    downstream fit step converts them to metres. Pen state is encoded
+    in Z:
 
     - Z = surface_height_m for pen-on-paper (WRITE)
     - Z = surface_height_m + lift_clearance_m for pen-up
@@ -197,6 +246,19 @@ def drawing_to_waypoints(
 
     waypoints: list[np.ndarray] = []
 
+    def waypoint(
+        point: np.ndarray,
+        z_m: float,
+    ) -> np.ndarray:
+        return np.array(
+            [
+                -point[1],
+                -point[0],
+                z_m,
+            ],
+            dtype=float,
+        )
+
     for stroke_index, stroke in enumerate(
         document.strokes
     ):
@@ -211,35 +273,17 @@ def drawing_to_waypoints(
             )
 
             waypoints.append(
-                np.array(
-                    [
-                        prev_last[0],
-                        prev_last[1],
-                        lift_z,
-                    ]
-                )
+                waypoint(prev_last, lift_z)
             )
 
         # Pen-up above this stroke's start.
         waypoints.append(
-            np.array(
-                [
-                    pts[0, 0],
-                    pts[0, 1],
-                    lift_z,
-                ]
-            )
+            waypoint(pts[0], lift_z)
         )
 
         # Lower to write height.
         waypoints.append(
-            np.array(
-                [
-                    pts[0, 0],
-                    pts[0, 1],
-                    write_z,
-                ]
-            )
+            waypoint(pts[0], write_z)
         )
 
         # Write stroke points (first point already placed).
@@ -248,12 +292,9 @@ def drawing_to_waypoints(
             pts.shape[0],
         ):
             waypoints.append(
-                np.array(
-                    [
-                        pts[point_index, 0],
-                        pts[point_index, 1],
-                        write_z,
-                    ]
+                waypoint(
+                    pts[point_index],
+                    write_z,
                 )
             )
 
@@ -263,13 +304,7 @@ def drawing_to_waypoints(
     )
 
     waypoints.append(
-        np.array(
-            [
-                last_pt[0],
-                last_pt[1],
-                lift_z,
-            ]
-        )
+        waypoint(last_pt, lift_z)
     )
 
     return np.array(
@@ -305,13 +340,21 @@ def filter_stroke_points(
             "points must have shape (N, 2)"
         )
 
+    if not np.all(np.isfinite(pts)):
+        raise ValueError(
+            "points contain non-finite values"
+        )
+
+    if (
+        not np.isfinite(min_distance)
+        or min_distance < 0.0
+    ):
+        raise ValueError(
+            "min_distance must be finite and nonnegative"
+        )
+
     if pts.shape[0] <= 2:
         return pts.copy()
-
-    if min_distance < 0.0:
-        raise ValueError(
-            "min_distance must be nonnegative"
-        )
 
     filtered = [pts[0]]
 

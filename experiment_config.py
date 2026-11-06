@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import argparse
 import math
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
 from config import CANONICAL_SVG, RUNTIME
+from drawing import DrawingDocument
 
 
 VALID_MODES = ("direct", "gui")
@@ -42,7 +43,7 @@ class ExperimentConfig:
 
     # v1.1: common drawing input.
     # When set, svg_file is not required to exist.
-    drawing: Any = None
+    drawing: DrawingDocument | None = None
 
     def validate(self) -> "ExperimentConfig":
         if self.mode not in VALID_MODES:
@@ -89,6 +90,17 @@ class ExperimentConfig:
             raise FileNotFoundError(
                 "SVG trajectory file does not exist: "
                 f"{self.svg_file}"
+            )
+
+        if (
+            self.drawing is not None
+            and not isinstance(
+                self.drawing,
+                DrawingDocument,
+            )
+        ):
+            raise TypeError(
+                "drawing must be a DrawingDocument or None"
             )
 
         if self.record_video and self.mode != "gui":

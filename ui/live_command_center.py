@@ -13,10 +13,18 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from robot import RobotState
 from ui.command_center import CommandCenter
+from ui.drawing_pad import DrawingPadWidget
 from ui.experiment_worker import ExperimentWorker
 from config import CANONICAL_SVG
 
@@ -47,9 +55,9 @@ class LiveCommandCenter(CommandCenter):
 
         self._configure_live_controls()
         self._clear_live_data()
-
-        self.status_label.setText(
-            f"LIVE MODE — SVG: {self.svg_file.name}"
+        self.resize(500, 980)
+        self._input_mode_changed(
+            self.input_tabs.currentIndex()
         )
 
     def _configure_live_controls(self) -> None:
@@ -150,6 +158,187 @@ class LiveCommandCenter(CommandCenter):
             1,
             2,
         )
+
+        run_box = self.run_button.parentWidget()
+        controls_panel = run_box.parentWidget()
+        controls_panel.layout().insertWidget(
+            1,
+            self._build_input_panel(),
+        )
+
+    def _build_input_panel(self) -> QGroupBox:
+        panel = QGroupBox("INPUT")
+        layout = QVBoxLayout(panel)
+
+        self.input_tabs = QTabWidget()
+
+        draw_tab = QWidget()
+        draw_layout = QVBoxLayout(draw_tab)
+
+        draw_hint = QLabel(
+            "Draw with a mouse, touchscreen, or stylus. "
+            "Each pointer gesture is a separate pen stroke."
+        )
+        draw_hint.setWordWrap(True)
+        draw_layout.addWidget(draw_hint)
+
+        self.drawing_pad = DrawingPadWidget()
+        draw_layout.addWidget(
+            self.drawing_pad,
+            1,
+        )
+
+        draw_actions = QHBoxLayout()
+        self.undo_stroke_button = QPushButton(
+            "Undo Last Stroke"
+        )
+        self.clear_drawing_button = QPushButton(
+            "Clear"
+        )
+        draw_actions.addWidget(
+            self.undo_stroke_button
+        )
+        draw_actions.addWidget(
+            self.clear_drawing_button
+        )
+        draw_layout.addLayout(draw_actions)
+
+        self.stroke_count_label = QLabel(
+            "0 strokes"
+        )
+        draw_layout.addWidget(
+            self.stroke_count_label
+        )
+
+        svg_tab = QWidget()
+        svg_layout = QVBoxLayout(svg_tab)
+
+        svg_hint = QLabel(
+            "Use an existing SVG through the same planning, "
+            "validation, and execution pipeline."
+        )
+        svg_hint.setWordWrap(True)
+        svg_layout.addWidget(svg_hint)
+
+        self.svg_name_label = QLabel(
+            self.svg_file.name
+        )
+        self.svg_name_label.setWordWrap(True)
+        svg_layout.addWidget(
+            self.svg_name_label
+        )
+        svg_layout.addWidget(
+            self.load_button
+        )
+        svg_layout.addStretch(1)
+
+        self.input_tabs.addTab(
+            draw_tab,
+            "DRAW",
+        )
+        self.input_tabs.addTab(
+            svg_tab,
+            "SVG",
+        )
+        layout.addWidget(
+            self.input_tabs
+        )
+
+        self.workflow_label = QLabel()
+        self.workflow_label.setStyleSheet(
+            "font-weight: bold; padding: 4px;"
+        )
+        self.workflow_label.setWordWrap(True)
+        layout.addWidget(
+            self.workflow_label
+        )
+
+        self.input_tabs.currentChanged.connect(
+            self._input_mode_changed
+        )
+        self.drawing_pad.drawing_changed.connect(
+            self._on_drawing_changed
+        )
+        self.undo_stroke_button.clicked.connect(
+            self.drawing_pad.undo_last_stroke
+        )
+        self.clear_drawing_button.clicked.connect(
+            self.drawing_pad.clear_drawing
+        )
+
+        self._set_workflow_stage("INPUT")
+        return panel
+
+    def _set_workflow_stage(
+        self,
+        active_stage: str,
+    ) -> None:
+        stages = (
+            "INPUT",
+            "PLAN",
+            "VALIDATE",
+            "EXECUTE",
+            "COMPLETE",
+        )
+        self.workflow_label.setText(
+            "  →  ".join(
+                (
+                    f"[{stage}]"
+                    if stage == active_stage
+                    else stage
+                )
+                for stage in stages
+            )
+        )
+
+    def _input_mode_changed(
+        self,
+        index: int,
+    ) -> None:
+        running = (
+            self.worker_thread is not None
+            and self.worker_thread.isRunning()
+        )
+        draw_mode = index == 0
+
+        self.load_button.setEnabled(
+            not draw_mode and not running
+        )
+
+        if running:
+            return
+
+        self._set_workflow_stage("INPUT")
+
+        if draw_mode:
+            self.status_label.setText(
+                "DRAW READY — create one or more strokes"
+            )
+        else:
+            self.status_label.setText(
+                f"SVG READY — {self.svg_file.name}"
+            )
+
+    def _on_drawing_changed(
+        self,
+        stroke_count: int,
+    ) -> None:
+        suffix = (
+            "stroke"
+            if stroke_count == 1
+            else "strokes"
+        )
+        self.stroke_count_label.setText(
+            f"{stroke_count} {suffix}"
+        )
+
+        if (
+            self.worker_thread is None
+            or not self.worker_thread.isRunning()
+        ):
+            self.status_label.setText(
+                f"DRAW READY — {stroke_count} {suffix}"
+            )
 
     def _clear_live_data(self) -> None:
         self.live_time_s: list[float] = []
@@ -256,6 +445,10 @@ class LiveCommandCenter(CommandCenter):
             filename
         )
 
+        self.svg_name_label.setText(
+            self.svg_file.name
+        )
+
         self.status_label.setText(
             f"SVG LOADED — {self.svg_file.name}"
         )
@@ -271,9 +464,8 @@ class LiveCommandCenter(CommandCenter):
             return
 
         self._clear_live_data()
-
-        self.status_label.setText(
-            f"LIVE READY — {self.svg_file.name}"
+        self._input_mode_changed(
+            self.input_tabs.currentIndex()
         )
 
     def _run_live(self) -> None:
@@ -286,11 +478,25 @@ class LiveCommandCenter(CommandCenter):
             )
             return
 
-        if not self.svg_file.is_file():
-            self.status_label.setText(
-                "Selected SVG does not exist"
-            )
-            return
+        drawing = None
+        svg_file = None
+
+        if self.input_tabs.currentIndex() == 0:
+            drawing = self.drawing_pad.get_drawing()
+
+            if drawing is None:
+                self.status_label.setText(
+                    "DRAW requires at least one non-empty stroke"
+                )
+                return
+        else:
+            if not self.svg_file.is_file():
+                self.status_label.setText(
+                    "Selected SVG does not exist"
+                )
+                return
+
+            svg_file = self.svg_file
 
         self._clear_live_data()
 
@@ -324,7 +530,8 @@ class LiveCommandCenter(CommandCenter):
         )
 
         self.worker = ExperimentWorker(
-            svg_file=self.svg_file,
+            svg_file=svg_file,
+            drawing=drawing,
             output_dir=output_dir,
             speed_scale=speed_scale,
             show_robot=show_robot,
@@ -385,6 +592,19 @@ class LiveCommandCenter(CommandCenter):
             False
         )
 
+        self.input_tabs.setEnabled(
+            False
+        )
+        self.drawing_pad.setEnabled(
+            False
+        )
+        self.undo_stroke_button.setEnabled(
+            False
+        )
+        self.clear_drawing_button.setEnabled(
+            False
+        )
+
         self.speed_slider.setEnabled(
             False
         )
@@ -408,8 +628,9 @@ class LiveCommandCenter(CommandCenter):
             else "HEADLESS"
         )
 
+        self._set_workflow_stage("PLAN")
         self.status_label.setText(
-            f"LIVE EXPERIMENT RUNNING — {mode}"
+            f"LIVE EXPERIMENT PLANNING — {mode}"
         )
 
         self.worker_thread.start()
@@ -494,6 +715,18 @@ class LiveCommandCenter(CommandCenter):
 
         if state is None:
             return
+
+        stage_by_state = {
+            RobotState.PLANNING: "PLAN",
+            RobotState.VALIDATING: "VALIDATE",
+            RobotState.EXECUTING: "EXECUTE",
+            RobotState.COMPLETE: "COMPLETE",
+        }
+
+        if state in stage_by_state:
+            self._set_workflow_stage(
+                stage_by_state[state]
+            )
 
         # During EXECUTING the detailed phase/time text from
         # telemetry is more informative and will take over.
@@ -832,6 +1065,7 @@ class LiveCommandCenter(CommandCenter):
             else "DEBUG RUN COMPLETE — PARTIAL PLAN"
         )
 
+        self._set_workflow_stage("COMPLETE")
         self.status_label.setText(
             completion_text
             + (
@@ -876,7 +1110,16 @@ class LiveCommandCenter(CommandCenter):
             True
         )
 
-        self.load_button.setEnabled(
+        self.input_tabs.setEnabled(
+            True
+        )
+        self.drawing_pad.setEnabled(
+            True
+        )
+        self.undo_stroke_button.setEnabled(
+            True
+        )
+        self.clear_drawing_button.setEnabled(
             True
         )
 
@@ -900,6 +1143,9 @@ class LiveCommandCenter(CommandCenter):
 
         self.worker = None
         self.worker_thread = None
+        self.load_button.setEnabled(
+            self.input_tabs.currentIndex() == 1
+        )
 
     def closeEvent(
         self,

@@ -2,6 +2,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
+
+from drawing import DrawingDocument, Stroke
 from experiment_config import ExperimentConfig
 
 
@@ -78,6 +81,38 @@ class ExperimentConfigTests(unittest.TestCase):
 
         with self.assertRaises(FileNotFoundError):
             config.validate()
+
+    def test_drawing_does_not_require_svg_file(self):
+        drawing = DrawingDocument(
+            strokes=(
+                Stroke(
+                    np.array(
+                        [
+                            [0.0, 0.0],
+                            [1.0, 1.0],
+                        ]
+                    )
+                ),
+            ),
+            source="api",
+        )
+
+        config = ExperimentConfig(
+            svg_file=Path("missing-trajectory.svg"),
+            drawing=drawing,
+        ).validate()
+
+        self.assertIs(config.drawing, drawing)
+        self.assertEqual(
+            config.to_dict()["drawing"]["source"],
+            "api",
+        )
+
+    def test_invalid_drawing_type_is_rejected(self):
+        with self.assertRaises(TypeError):
+            ExperimentConfig(
+                drawing=object(),
+            ).validate()
 
     def test_direct_video_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

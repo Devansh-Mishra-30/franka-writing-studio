@@ -37,7 +37,6 @@ from metrics import (
 from franka_mechanics import FrankaMechanics
 from pen_tip_kinematics import (
     PEN_TIP_OFFSET_TOOL_M,
-    legacy_positions_to_pen_tip,
     pen_tip_jacobian,
     pen_tip_position,
 )
@@ -51,7 +50,7 @@ from simulation.pybullet_adapter import (
     PyBulletSettings,
 )
 from drawing import DrawingDocument, drawing_to_waypoints
-from trajectory import SvgTrajectory
+from svg_adapter import svg_to_drawing
 from writing_plan import TimedWritingPlan
 from workcells import WRITING_STUDIO
 
@@ -125,18 +124,16 @@ class WritingExperiment:
 
         self.mechanics = FrankaMechanics()
 
-        # Writing input source: DrawingDocument (v1.1) or
-        # legacy SVG trajectory (v1.0).
-        self._drawing: DrawingDocument | None = (
+        # Normalize every supported input at the application boundary.
+        # Planning, validation, and execution never need to know whether
+        # the drawing came from SVG or the dashboard.
+        self._drawing: DrawingDocument = (
             self.config.drawing
-        )
-
-        self.trajectory: SvgTrajectory | None = None
-
-        if self._drawing is None:
-            self.trajectory = SvgTrajectory(
+            if self.config.drawing is not None
+            else svg_to_drawing(
                 self.config.svg_file
             )
+        )
 
     @property
     def stop_requested(self) -> bool:
@@ -188,26 +185,36 @@ class WritingExperiment:
             ),
         )
 
-        # Produce pen-tip waypoints from the active input source.
-        if self._drawing is not None:
-            raw_pen_tip_waypoints_m = (
-                drawing_to_waypoints(
-                    self._drawing,
-                    surface_height_m=(
-                        contact_parameters.surface_height_m
-                    ),
-                )
+        raw_pen_tip_waypoints_m = (
+            drawing_to_waypoints(
+                self._drawing,
+                surface_height_m=(
+                    contact_parameters.surface_height_m
+                ),
             )
-        else:
-            raw_pen_tip_waypoints_m = (
-                legacy_positions_to_pen_tip(
-                    self.trajectory.positions_m
-                )
+        )
+
+        source_bounds_xy = None
+
+        if self._drawing.canvas_size is not None:
+            canvas_width, canvas_height = (
+                self._drawing.canvas_size
+            )
+            source_bounds_xy = (
+                np.array(
+                    [
+                        -canvas_height,
+                        -canvas_width,
+                    ],
+                    dtype=float,
+                ),
+                np.zeros(2, dtype=float),
             )
 
         nominal_pen_tip_waypoints_m = (
             fit_xy_path_to_surface(
                 raw_pen_tip_waypoints_m,
+                source_bounds_xy=source_bounds_xy,
                 surface_size_m=(
                     WRITING_STUDIO.notebook.size_m[:2]
                 ),
@@ -1271,8 +1278,6 @@ class WritingExperiment:
 
             summary["trajectory"] = (
                 self._drawing.metadata()
-                if self._drawing is not None
-                else self.trajectory.metadata()
             )
 
             summary["writing_plan"] = {

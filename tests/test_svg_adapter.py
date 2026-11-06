@@ -155,6 +155,41 @@ class SvgAdapterCompatibilityTests(unittest.TestCase):
     waypoints compatible with the existing execution stack.
     """
 
+    def test_fitted_waypoints_match_v1_svg_pipeline(self):
+        from contact_dynamics import fit_xy_path_to_surface
+        from pen_tip_kinematics import legacy_positions_to_pen_tip
+        from trajectory import SvgTrajectory
+        from workcells import WRITING_STUDIO
+
+        svg_path = Path("svg/hey.svg")
+        surface_size = WRITING_STUDIO.notebook.size_m[:2]
+
+        legacy = fit_xy_path_to_surface(
+            legacy_positions_to_pen_tip(
+                SvgTrajectory(svg_path).positions_m
+            ),
+            surface_size_m=surface_size,
+            margin_m=0.02,
+        )
+
+        adapted = fit_xy_path_to_surface(
+            drawing_to_waypoints(
+                svg_to_drawing(svg_path),
+                surface_height_m=(
+                    WRITING_STUDIO.notebook.top_height_m
+                ),
+            ),
+            surface_size_m=surface_size,
+            margin_m=0.02,
+        )
+
+        np.testing.assert_allclose(
+            adapted,
+            legacy,
+            atol=1e-12,
+            rtol=0.0,
+        )
+
     def test_waypoints_fit_notebook_after_processing(self):
         """Drawing waypoints pass through fit_xy_path_to_surface
         and stay within notebook bounds."""

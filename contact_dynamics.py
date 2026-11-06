@@ -111,6 +111,9 @@ def fit_xy_path_to_surface(
     *,
     surface_size_m: tuple[float, float],
     margin_m: float = 0.02,
+    source_bounds_xy: (
+        tuple[np.ndarray, np.ndarray] | None
+    ) = None,
     parameters: PenContactParameters = (
         DEFAULT_PEN_CONTACT_PARAMETERS
     ),
@@ -182,15 +185,54 @@ def fit_xy_path_to_surface(
 
     result = positions.copy()
 
-    xy_min = np.min(
+    path_xy_min = np.min(
         result[:, :2],
         axis=0,
     )
 
-    xy_max = np.max(
+    path_xy_max = np.max(
         result[:, :2],
         axis=0,
     )
+
+    if source_bounds_xy is None:
+        xy_min = path_xy_min
+        xy_max = path_xy_max
+    else:
+        if len(source_bounds_xy) != 2:
+            raise ValueError(
+                "source_bounds_xy must contain min and max XY"
+            )
+
+        xy_min = np.asarray(
+            source_bounds_xy[0],
+            dtype=float,
+        )
+        xy_max = np.asarray(
+            source_bounds_xy[1],
+            dtype=float,
+        )
+
+        if (
+            xy_min.shape != (2,)
+            or xy_max.shape != (2,)
+            or not np.all(np.isfinite(xy_min))
+            or not np.all(np.isfinite(xy_max))
+            or np.any(xy_max <= xy_min)
+        ):
+            raise ValueError(
+                "source_bounds_xy must be finite increasing XY bounds"
+            )
+
+        tolerance = 1e-9
+
+        if (
+            np.any(path_xy_min < xy_min - tolerance)
+            or np.any(path_xy_max > xy_max + tolerance)
+        ):
+            raise ValueError(
+                "source_bounds_xy must contain the complete path"
+            )
 
     span = xy_max - xy_min
 

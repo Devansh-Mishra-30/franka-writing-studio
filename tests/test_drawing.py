@@ -75,6 +75,22 @@ class StrokeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Stroke(points=pts)
 
+    def test_points_are_immutable_copy(self):
+        pts = np.array(
+            [
+                [0.0, 0.0],
+                [1.0, 1.0],
+            ]
+        )
+
+        stroke = Stroke(points=pts)
+        pts[0, 0] = 99.0
+
+        self.assertEqual(stroke.points[0, 0], 0.0)
+
+        with self.assertRaises(ValueError):
+            stroke.points[0, 0] = 42.0
+
     def test_points_are_float_array(self):
         pts = np.array(
             [
@@ -196,6 +212,21 @@ class DrawingDocumentTests(unittest.TestCase):
             bb_max,
             [5.0, 8.0],
         )
+
+    def test_invalid_canvas_size_rejected(self):
+        with self.assertRaises(ValueError):
+            DrawingDocument(
+                strokes=(self._make_stroke(),),
+                source="touchpad",
+                canvas_size=(0.0, 300.0),
+            )
+
+    def test_non_stroke_member_rejected(self):
+        with self.assertRaises(TypeError):
+            DrawingDocument(
+                strokes=(object(),),
+                source="test",
+            )
 
     def test_metadata(self):
         doc = DrawingDocument(
@@ -380,25 +411,24 @@ class DrawingToWaypointsTests(unittest.TestCase):
             surface_height_m=0.525,
         )
 
-        # First stroke comes before second stroke.
-        first_write_x = []
-        second_write_x = []
+        write_xy = waypoints[
+            np.isclose(
+                waypoints[:, 2],
+                0.525,
+            ),
+            :2,
+        ]
 
-        for wp in waypoints:
-            if np.isclose(wp[2], 0.525):
-                if wp[0] < 5.0:
-                    first_write_x.append(wp[0])
-                else:
-                    second_write_x.append(wp[0])
-
-        self.assertGreater(
-            len(first_write_x),
-            0,
-        )
-
-        self.assertGreater(
-            len(second_write_x),
-            0,
+        # Display coordinates map to the established notebook-plane
+        # convention, but stroke and point order remain unchanged.
+        np.testing.assert_allclose(
+            write_xy,
+            [
+                [0.0, 0.0],
+                [0.0, -1.0],
+                [-10.0, -10.0],
+                [-10.0, -11.0],
+            ],
         )
 
     def test_aspect_ratio_preserved_by_fit(self):
@@ -579,6 +609,29 @@ class FilterStrokePointsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             filter_stroke_points(pts)
 
+    def test_non_finite_points_rejected(self):
+        with self.assertRaises(ValueError):
+            filter_stroke_points(
+                np.array(
+                    [
+                        [0.0, 0.0],
+                        [np.nan, 1.0],
+                    ]
+                )
+            )
+
+    def test_non_finite_distance_rejected(self):
+        with self.assertRaises(ValueError):
+            filter_stroke_points(
+                np.array(
+                    [
+                        [0.0, 0.0],
+                        [1.0, 1.0],
+                    ]
+                ),
+                min_distance=np.nan,
+            )
+
     def test_zero_distance_keeps_all_unique(self):
         pts = np.array(
             [
@@ -598,6 +651,67 @@ class FilterStrokePointsTests(unittest.TestCase):
             filtered.shape[0],
             pts.shape[0],
         )
+
+
+class CanvasPlacementTests(unittest.TestCase):
+    def test_canvas_bounds_preserve_whitespace(self):
+        from contact_dynamics import fit_xy_path_to_surface
+
+        document = DrawingDocument(
+            strokes=(
+                Stroke(
+                    np.array(
+                        [
+                            [40.0, 40.0],
+                            [60.0, 60.0],
+                        ]
+                    )
+                ),
+            ),
+            source="touchpad",
+            canvas_size=(100.0, 100.0),
+        )
+
+        waypoints = drawing_to_waypoints(
+            document,
+            surface_height_m=0.525,
+        )
+        fitted = fit_xy_path_to_surface(
+            waypoints,
+            surface_size_m=(0.42, 0.30),
+            margin_m=0.02,
+            source_bounds_xy=(
+                np.array([-100.0, -100.0]),
+                np.array([0.0, 0.0]),
+            ),
+        )
+
+        span = np.ptp(
+            fitted[:, :2],
+            axis=0,
+        )
+        self.assertLessEqual(
+            float(np.max(span)),
+            0.2 * 0.26 + 1e-12,
+        )
+
+    def test_source_bounds_must_contain_path(self):
+        from contact_dynamics import fit_xy_path_to_surface
+
+        with self.assertRaises(ValueError):
+            fit_xy_path_to_surface(
+                np.array(
+                    [
+                        [0.0, 0.0, 0.525],
+                        [10.0, 10.0, 0.525],
+                    ]
+                ),
+                surface_size_m=(0.42, 0.30),
+                source_bounds_xy=(
+                    np.array([0.0, 0.0]),
+                    np.array([5.0, 5.0]),
+                ),
+            )
 
 
 class NotebookBoundsTests(unittest.TestCase):
