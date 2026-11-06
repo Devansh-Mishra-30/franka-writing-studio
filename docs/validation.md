@@ -113,7 +113,7 @@ Run the canonical acceptance cycle with:
 ```bash
 ./wr e2e \
   --svg svg/franka_portfolio.svg \
-  --output-dir artifacts/release/v1_0_0
+  --output-dir artifacts/release/v1_1_0
 ```
 
 The acceptance runner checks:

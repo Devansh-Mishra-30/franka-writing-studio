@@ -3,6 +3,7 @@
 [![CI](https://github.com/Devansh-Mishra-30/franka-writing-studio/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Devansh-Mishra-30/franka-writing-studio/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](Dockerfile)
+[![Release](https://img.shields.io/github/v/release/Devansh-Mishra-30/franka-writing-studio)](https://github.com/Devansh-Mishra-30/franka-writing-studio/releases/latest)
 
 ## Overview
 
@@ -13,6 +14,21 @@ During writing, the controller combines Cartesian XY path tracking, Z-axis norma
 The v1.1 dashboard adds multi-stroke freehand input, live engineering telemetry, persistent post-run PyBullet inspection, portfolio camera controls, PyBullet video capture, and engineering-telemetry MP4 recording. The project also includes Pinocchio rigid-body dynamics, MATLAB cross-software verification, controlled synthetic model mismatch, residual learning, Docker reproducibility, automated verification, and GitHub Actions CI.
 
 > This repository demonstrates simulation, controls, software architecture, and verification. It has not been deployed on a physical Franka and is not a safety-certified robot controller.
+
+## At a Glance
+
+| | |
+|---|---|
+| **Inputs** | Interactive freehand DRAW + supported SVG |
+| **Robot** | 7-DoF Franka digital twin |
+| **Control** | XY Cartesian tracking + Z force-velocity admittance + orientation hold |
+| **Motion** | Minimum-jerk trajectories + damped least-squares differential IK |
+| **Validation** | 181 automated tests + SVG, drawing, and dashboard E2E gates |
+| **Canonical WRITE performance** | 100% simulated contact, 0.0685 mm XY RMSE |
+| **Observability** | Live force, XY error, contact, phase, state, and progress telemetry |
+| **Media output** | PyBullet execution video + engineering telemetry MP4 |
+
+**Latest release:** [`v1.1.0`](docs/releases/v1.1.0.md)
 
 ## Demo
 
@@ -73,7 +89,10 @@ Three independent freehand-drawing acceptance runs also completed with 100% WRIT
 
 These are deterministic simulation results, not physical-robot accuracy claims.
 
-## Historical v1.0 Validated Results
+<details>
+<summary><strong>Historical v1.0 validation baseline</strong></summary>
+
+### Historical v1.0 Validated Results
 
 Canonical release experiment:
 
@@ -106,6 +125,8 @@ These are deterministic simulation results, not physical-robot accuracy claims.
 ![XY tracking error](docs/media/results/xy_tracking_error.png)
 
 ![Execution phases](docs/media/results/execution_phases.png)
+
+</details>
 
 ## System Architecture
 
@@ -195,7 +216,7 @@ The implementation applies official joint-position and joint-velocity limits and
 
 ## Trajectory Generation
 
-SVG processing produces source waypoints. `TimedWritingPlan` converts those waypoints into the executed trajectory. Each segment uses minimum-jerk interpolation:
+`DrawingDocument` processing produces source waypoints from either freehand dashboard strokes or supported SVG geometry. `TimedWritingPlan` converts those waypoints into the executed trajectory. Each segment uses minimum-jerk interpolation:
 
 $$
 s(\tau)=10\tau^3-15\tau^4+6\tau^5,\qquad 0\leq\tau\leq1
@@ -325,8 +346,10 @@ MATLAB verification requires a compatible MATLAB installation with Robotics Syst
 ## Repository Structure
 
 ```text
+drawing.py       Common DrawingDocument and freehand waypoint conversion
+svg_adapter.py   SVG-to-DrawingDocument compatibility adapter
 config/          Release configuration
-docs/            Validation documentation and media
+docs/            Architecture, validation, releases, and curated media
 experiments/     Writing experiment orchestration
 learning/        Offline residual learning
 robot/           Robot application interface
@@ -348,7 +371,7 @@ workcells/       Writing-cell model and validation
 - Simulation only; no physical Franka deployment
 - No ROS 2 or PLC integration in this release
 - No safety PLC, certified E-stop chain, guarding, or safety validation
-- No camera, perception, TCP calibration, or work-object registration
+- No perception sensors or vision pipeline, TCP calibration, or physical work-object registration
 - Pen is rigidly attached; autonomous pickup and return are not implemented
 - Collision preflight is sampled and focused primarily on robot–table collision
 - No general motion planner or continuous collision checking
