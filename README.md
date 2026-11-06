@@ -6,11 +6,11 @@
 
 ## Overview
 
-Franka Writing Studio is a simulation-only robotics application for a 7-DoF Franka robot. It converts supported SVG path geometry into Cartesian waypoints, constructs a complete pen-lift/write/transfer trajectory, validates the motion against the modeled workcell, and executes it in PyBullet.
+Franka Writing Studio is a simulation-only robotics application for a 7-DoF Franka robot. A user can draw directly in the PySide6 dashboard or provide supported SVG geometry. Both inputs are normalized into a common `DrawingDocument`, converted into pen-tip waypoints, placed inside the modeled notebook, planned, validated, and executed in PyBullet.
 
 During writing, the controller combines Cartesian XY path tracking, Z-axis normal-force velocity admittance, and orientation hold. Damped least-squares differential inverse kinematics maps the Cartesian command to bounded joint-velocity commands.
 
-The project also includes Pinocchio rigid-body dynamics, MATLAB cross-software verification, a controlled synthetic model-mismatch experiment, residual learning, a PySide6 command center, automated tests, Docker reproducibility, and GitHub Actions CI.
+The v1.1 dashboard adds multi-stroke freehand input, live engineering telemetry, persistent post-run PyBullet inspection, portfolio camera controls, PyBullet video capture, and engineering-telemetry MP4 recording. The project also includes Pinocchio rigid-body dynamics, MATLAB cross-software verification, controlled synthetic model mismatch, residual learning, Docker reproducibility, automated verification, and GitHub Actions CI.
 
 > This repository demonstrates simulation, controls, software architecture, and verification. It has not been deployed on a physical Franka and is not a safety-certified robot controller.
 
@@ -23,15 +23,57 @@ Launch the interactive command center:
 ./wr ui
 ```
 
-Select an SVG, enable the PyBullet window, and choose **RUN LIVE**.
+The dashboard opens in **DRAW** mode. Draw with a mouse, touchscreen, or stylus; each pointer gesture becomes a separate pen stroke. **Undo Last Stroke** and **Clear** are available before execution.
 
-Run the headless acceptance cycle:
+For the full visual demo:
+
+1. Enable **Show PyBullet robot window**.
+2. Keep **Run complete writing plan** enabled.
+3. Keep **Keep PyBullet open after completion** enabled when you want to inspect or capture the final scene.
+4. Optionally enable **Record PyBullet video** and **Record engineering telemetry**.
+5. Choose **RUN LIVE**.
+
+The **SVG** tab remains available and uses the same planning, validation, execution, and telemetry pipeline.
+
+The PyBullet view includes Isometric, Top, Notebook, and Robot presets plus orbit, tilt, zoom, and pan controls.
+
+Run the canonical headless SVG acceptance cycle with:
 
 ```bash
 ./wr e2e
 ```
 
-## Validated Results
+## v1.1.0 Release Verification
+
+The v1.1.0 release gate completed successfully:
+
+| Gate | Result |
+|---|---:|
+| Automated pytest suite | 181 passed |
+| Canonical SVG E2E | PASS |
+| Freehand drawing E2E | 3 / 3 PASS |
+| Dashboard DRAW E2E | PASS |
+| Environment doctor | PASS |
+| Repository audit | COMPLETE |
+
+Latest canonical SVG acceptance run:
+
+| Metric | Result |
+|---|---:|
+| WRITE samples | 24,622 |
+| WRITE contact rate | 100.00% |
+| WRITE XY RMSE | 0.0685 mm |
+| WRITE maximum XY error | 0.1496 mm |
+| Mean WRITE force | 0.9908 N |
+| Target normal force | 1.0000 N |
+| Force RMS error | 0.0692 N |
+| Force-control saturation count | 0 |
+
+Three independent freehand-drawing acceptance runs also completed with 100% WRITE contact. Their XY RMSE values were 0.0699 mm, 0.0946 mm, and 0.0779 mm.
+
+These are deterministic simulation results, not physical-robot accuracy claims.
+
+## Historical v1.0 Validated Results
 
 Canonical release experiment:
 
@@ -68,31 +110,43 @@ These are deterministic simulation results, not physical-robot accuracy claims.
 ## System Architecture
 
 ```text
-SVG input
-   │
-   ▼
-SVG waypoint source ──► scale and place in notebook frame
-   │
-   ▼
-TimedWritingPlan ──► minimum-jerk approach/write/transfer/retract segments
-   │
-   ▼
-Workcell validation ──► bounds, reachability, sampled collision preflight
-   │
-   ▼
-RobotInterface ──► commands, lifecycle state, faults, cancellation
-   │
-   ▼
-Hybrid Cartesian controller
-   ├── XY position tracking
-   ├── Z normal-force velocity admittance
-   └── orientation hold
-   │
-   ▼
-Damped least-squares differential IK
-   │
-   ▼
-PyBulletAdapter ──► Franka simulation, contact, telemetry, artifacts
+Interactive DRAW ──┐
+                   ├──► DrawingDocument
+SVG ─► SVG adapter ┘          │
+                              ▼
+                     drawing_to_waypoints
+                              │
+                              ▼
+                 scale and place in notebook
+                              │
+                              ▼
+                     TimedWritingPlan
+            approach / write / transfer / retract
+                              │
+                              ▼
+                      workcell validation
+          bounds / reachability / sampled collision
+                              │
+                              ▼
+                       RobotInterface
+          lifecycle / commands / faults / cancellation
+                              │
+                              ▼
+                 hybrid Cartesian controller
+             XY position tracking
+             Z force-velocity admittance
+             orientation hold
+                              │
+                              ▼
+                damped least-squares IK
+                              │
+                              ▼
+                      PyBulletAdapter
+             simulation / contact / telemetry
+                              │
+                 ┌────────────┴────────────┐
+                 ▼                         ▼
+          PyBullet video           telemetry video
 ```
 
 Primary boundaries:
@@ -111,19 +165,21 @@ Primary boundaries:
 - [System architecture](docs/architecture.md)
 - [Robot task interface](docs/robot_task_interface.md)
 - [Validation and reproducibility](docs/validation.md)
+- [v1.1.0 release notes](docs/releases/v1.1.0.md)
+- [Changelog](CHANGELOG.md)
 
 ## Writing Pipeline
 
-1. Read supported SVG path data.
-2. Convert path endpoints into Cartesian source waypoints.
-3. Scale and center the geometry inside the notebook work area.
-4. Add pen-lift, approach, transfer, and retract motion.
-5. Create minimum-jerk Cartesian segments.
-6. Validate workcell bounds and sampled reachability.
-7. Perform sampled robot-table collision preflight.
-8. Home the simulated robot and execute the writing plan.
-9. Record telemetry, metrics, configuration, and provenance.
-10. Return the application to `READY`.
+1. Acquire either freehand dashboard strokes or supported SVG path geometry.
+2. Normalize the input into an ordered `DrawingDocument`.
+3. Convert ordered strokes into pen-tip waypoints while preserving pen lifts between strokes.
+4. Map the source geometry into the notebook work area while preserving aspect ratio and, for dashboard input, canvas whitespace.
+5. Add approach, lowering, writing, transfer, lifting, retract, and return motion.
+6. Create minimum-jerk Cartesian segments with `TimedWritingPlan`.
+7. Validate notebook bounds, sampled reachability, and sampled robot-table collision.
+8. Execute through `RobotInterface` using the existing hybrid Cartesian controller and differential IK stack.
+9. Stream live engineering telemetry and write run artifacts.
+10. Optionally record PyBullet and telemetry videos and retain the completed PyBullet scene for inspection.
 
 ## Kinematics and Differential IK
 
@@ -226,7 +282,7 @@ The interface provides state, task status, progress, fault information, telemetr
 ./wr e2e
 ```
 
-Current release gate: **129 tests passing**.
+Current v1.1.0 release gate: **181 tests passing**.
 
 GitHub Actions checks out the pinned submodule, builds the Docker image, and runs the pytest suite for pushes and pull requests.
 
@@ -237,7 +293,7 @@ Requirements: Git, Docker, and WSLg or an X server for the GUI.
 ```bash
 git clone --recurse-submodules \
   https://github.com/Devansh-Mishra-30/franka-writing-studio.git
-cd Writing_robot_with_vid
+cd franka-writing-studio
 
 ./wr build
 ./wr doctor

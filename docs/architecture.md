@@ -7,34 +7,37 @@ Franka Writing Studio is a simulation-only robotic writing application. It separ
 ## Data Flow
 
 ```text
-SVG input
-   |
-   v
-Cartesian source waypoints
-   |
-   v
-Notebook scaling and placement
-   |
-   v
-Minimum-jerk writing plan
-   |
-   v
-Bounds, reachability, and collision preflight
-   |
-   v
-RobotInterface lifecycle
-   |
-   v
-Hybrid Cartesian command
-   |
-   v
-Damped least-squares differential IK
-   |
-   v
-Bounded joint-velocity command
-   |
-   v
-PyBullet simulation and telemetry
+Interactive dashboard strokes ──┐
+                                ├──> DrawingDocument
+SVG input ──> SVG adapter ──────┘           |
+                                            v
+                                  drawing_to_waypoints
+                                            |
+                                            v
+                              Notebook scaling and placement
+                                            |
+                                            v
+                                Minimum-jerk writing plan
+                                            |
+                                            v
+                         Bounds / reachability / collision preflight
+                                            |
+                                            v
+                                   RobotInterface lifecycle
+                                            |
+                                            v
+                                  Hybrid Cartesian command
+                                            |
+                                            v
+                           Damped least-squares differential IK
+                                            |
+                                            v
+                              Bounded joint-velocity command
+                                            |
+                                            v
+                                PyBullet simulation / contact
+                                            |
+                              telemetry / metrics / recordings
 ```
 
 ## Components
@@ -42,6 +45,8 @@ PyBullet simulation and telemetry
 | Component | Responsibility |
 |---|---|
 | `config/` | Release configuration and canonical inputs |
+| `drawing.py` | Input-agnostic `DrawingDocument`, ordered strokes, filtering, and waypoint conversion |
+| `svg_adapter.py` | Backward-compatible SVG-to-`DrawingDocument` adapter |
 | `robot/` | Commands, application state, faults, status, and public interface |
 | `tasks/` | Writing-task planning, validation, execution, and cancellation |
 | `workcells/` | Notebook, table, tools, workspace, and collision preflight |
@@ -58,9 +63,9 @@ Application and task logic depend on robot and simulation abstractions. PyBullet
 
 ## Planning and Execution
 
-SVG processing produces source waypoints. `TimedWritingPlan` adds approach, lowering, writing, transfer, lifting, and return segments using minimum-jerk interpolation.
+The dashboard drawing pad and SVG adapter both produce the same ordered `DrawingDocument`. `drawing_to_waypoints()` converts that document into the established notebook-plane convention while preserving stroke order and explicit pen-up transfers. Dashboard canvas bounds are carried through placement so small drawings retain natural whitespace instead of being stretched to the notebook limits.
 
-Before execution, the application checks notebook bounds, sampled model reachability, and sampled robot-table collision. The controller then tracks Cartesian XY position, regulates Z normal force through velocity admittance, and holds orientation.
+`TimedWritingPlan` adds approach, lowering, writing, transfer, lifting, retract, and return segments using minimum-jerk interpolation. Before execution, the application checks notebook bounds, sampled model reachability, and sampled robot-table collision. The controller then tracks Cartesian XY position, regulates Z normal force through velocity admittance, and holds orientation.
 
 ## Kinematics, Dynamics, and Simulation
 
@@ -76,4 +81,4 @@ This design allows a future ROS 2 action server or PLC communication adapter to 
 
 ## Deployment Boundary
 
-Version 1.0 does not contain ROS 2, PLC, physical I/O, perception, calibration, or safety-certified functionality. Collision preflight is sampled rather than continuous, and all reported performance is from simulation.
+Version 1.1.0 remains simulation-only. It does not contain ROS 2, PLC, physical I/O, perception, physical calibration, or safety-certified functionality. Collision preflight is sampled rather than continuous, and all reported performance is from simulation. Camera controls and video recording are presentation/debug interfaces around the PyBullet digital twin; they do not change the validated robot-control path.

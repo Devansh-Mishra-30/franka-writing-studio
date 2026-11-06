@@ -2,13 +2,13 @@
 
 ## Purpose
 
-This document defines the evidence supporting Franka Writing Studio v1.0. It separates software verification, simulation acceptance, cross-software agreement, and offline learning experiments from claims that would require physical hardware.
+This document defines the evidence supporting Franka Writing Studio v1.1.0. It separates software verification, simulation acceptance, dashboard/freehand-input acceptance, cross-software agreement, and offline learning experiments from claims that would require physical hardware.
 
 All writing-performance results reported here are simulation results.
 
-## Release Configuration
+## Historical v1.0 Canonical Configuration
 
-The canonical v1 experiment uses:
+The historical v1.0 canonical SVG experiment uses:
 
 - `svg/franka_portfolio.svg`
 - A 1 ms simulation timestep
@@ -30,9 +30,39 @@ The canonical artifact was written to:
 artifacts/release/v1_0_0
 ```
 
+## v1.1.0 Release Gate
+
+The v1.1.0 release gate produced:
+
+| Verification gate | Result |
+|---|---:|
+| Automated pytest suite | 181 passed |
+| Canonical SVG E2E | PASS |
+| Three freehand drawing E2Es | 3 / 3 PASS |
+| Dashboard DRAW E2E | PASS |
+| `./wr doctor` | PASS |
+| `./wr audit` | COMPLETE |
+
+Latest canonical SVG E2E metrics:
+
+| Acceptance metric | Result |
+|---|---:|
+| WRITE samples | 24,622 |
+| WRITE contact | 100.00% |
+| WRITE XY RMSE | 0.0685 mm |
+| WRITE maximum XY error | 0.1496 mm |
+| Mean WRITE force | 0.9908 N |
+| Target force | 1.0000 N |
+| Force RMS error | 0.0692 N |
+| Force saturation count | 0 |
+
+Three independent freehand-drawing E2E cases completed with 100% WRITE contact. Their XY RMSE values were 0.0699 mm, 0.0946 mm, and 0.0779 mm; their force RMS errors were 0.0736 N, 0.1182 N, and 0.0826 N.
+
+The offscreen dashboard acceptance test completed the full `INPUT -> PLAN -> VALIDATE -> EXECUTE -> COMPLETE` workflow.
+
 ## Automated Test Suite
 
-The release suite contains 129 automated tests covering:
+The v1.1.0 release suite contains 181 automated tests covering:
 
 - SVG waypoint-source and trajectory behavior
 - Trajectory sampling and timing
@@ -47,6 +77,12 @@ The release suite contains 129 automated tests covering:
 - Fault entry and RESET recovery
 - Cooperative STOP behavior
 - Experiment configuration
+- Common `DrawingDocument` validation and immutability
+- SVG-to-common-model compatibility
+- Freehand canvas coordinate handling and point filtering
+- Multi-stroke ordering and pen-up transfers
+- Dashboard drawing-pad behavior
+- Experiment-worker drawing input
 - Logging, metrics, and provenance
 
 Run the suite with:
@@ -70,7 +106,7 @@ Run:
 
 `audit` reports repository hygiene, generated files, root-owned files, SVG inputs, and tracked-file count.
 
-## End-to-End Acceptance
+## SVG End-to-End Acceptance
 
 Run the canonical acceptance cycle with:
 
@@ -92,7 +128,32 @@ The acceptance runner checks:
 8. Force control does not saturate.
 9. The robot returns home and the application returns to `READY`.
 
-## Canonical Writing Results
+## v1.1.0 Freehand and Dashboard Acceptance
+
+Run the three freehand drawing acceptance cases with:
+
+```bash
+docker run --rm \
+  -e QT_QPA_PLATFORM=offscreen \
+  -v "$PWD:/workspace" \
+  -w /workspace \
+  writing-robot:dev \
+  python3 scripts/e2e_drawings.py
+```
+
+Run the offscreen dashboard acceptance case with:
+
+```bash
+docker run --rm \
+  -e QT_QPA_PLATFORM=offscreen \
+  -v "$PWD:/workspace" \
+  -w /workspace \
+  writing-robot:dev \
+  python3 scripts/e2e_dashboard_draw.py
+```
+These tests exercise the same planning, validation, `RobotInterface`, controller, and PyBullet execution path used by the SVG workflow.
+
+## Historical v1.0 Canonical Writing Results
 
 | Acceptance metric | Result |
 |---|---:|
