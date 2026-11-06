@@ -29,7 +29,8 @@ class ExperimentWorker(QObject):
     def __init__(
         self,
         *,
-        svg_file: Path,
+        svg_file: Path | None = None,
+        drawing: object | None = None,
         output_dir: Path,
         speed_scale: float,
         show_robot: bool,
@@ -39,7 +40,14 @@ class ExperimentWorker(QObject):
     ) -> None:
         super().__init__()
 
+        if svg_file is None and drawing is None:
+            raise ValueError(
+                "Either svg_file or drawing "
+                "must be provided"
+            )
+
         self.svg_file = svg_file
+        self.drawing = drawing
         self.output_dir = output_dir
         self.speed_scale = speed_scale
         self.show_robot = show_robot
@@ -62,7 +70,11 @@ class ExperimentWorker(QObject):
                 mode=mode,
                 duration_s=self.duration_s,
                 timestep_s=RUNTIME.timestep_s,
-                svg_file=self.svg_file,
+                svg_file=(
+                    self.svg_file
+                    if self.svg_file is not None
+                    else Path("unused")
+                ),
                 output_dir=self.output_dir,
                 realtime=self.show_robot,
                 record_video=(
@@ -71,6 +83,7 @@ class ExperimentWorker(QObject):
                 ),
                 speed_scale=self.speed_scale,
                 full_plan=self.full_plan,
+                drawing=self.drawing,
             ).validate()
 
             self.robot = RobotInterface(

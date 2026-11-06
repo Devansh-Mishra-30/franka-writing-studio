@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -16,7 +16,15 @@ VALID_MODES = ("direct", "gui")
 
 @dataclass(frozen=True)
 class ExperimentConfig:
-    """Configuration shared by the CLI and simulation runner."""
+    """Configuration shared by the CLI and simulation runner.
+
+    Writing input can be provided as either:
+    - an SVG file path (``svg_file``, the v1 interface), or
+    - a DrawingDocument (``drawing``, the v1.1 common model).
+
+    When ``drawing`` is provided it takes precedence and
+    ``svg_file`` is not validated for existence.
+    """
 
     mode: str = "direct"
     duration_s: float = 2.0
@@ -31,6 +39,10 @@ class ExperimentConfig:
 
     speed_scale: float = 1.0
     full_plan: bool = False
+
+    # v1.1: common drawing input.
+    # When set, svg_file is not required to exist.
+    drawing: Any = None
 
     def validate(self) -> "ExperimentConfig":
         if self.mode not in VALID_MODES:
@@ -68,7 +80,12 @@ class ExperimentConfig:
                 "speed_scale must be finite and positive"
             )
 
-        if not self.svg_file.is_file():
+        # SVG file validation is skipped when a
+        # DrawingDocument is provided directly.
+        if (
+            self.drawing is None
+            and not self.svg_file.is_file()
+        ):
             raise FileNotFoundError(
                 "SVG trajectory file does not exist: "
                 f"{self.svg_file}"
@@ -109,6 +126,17 @@ class ExperimentConfig:
         payload["output_dir"] = str(
             self.output_dir
         )
+
+        # DrawingDocument is not JSON-serializable;
+        # replace with its metadata when present.
+        if self.drawing is not None:
+            payload["drawing"] = (
+                self.drawing.metadata()
+                if hasattr(self.drawing, "metadata")
+                else str(self.drawing)
+            )
+        else:
+            payload.pop("drawing", None)
 
         # duration_s controls fixed-duration runs only.
         # Full-plan runs derive their actual execution duration

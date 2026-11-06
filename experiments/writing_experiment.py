@@ -50,6 +50,7 @@ from simulation.pybullet_adapter import (
     PyBulletAdapter,
     PyBulletSettings,
 )
+from drawing import DrawingDocument, drawing_to_waypoints
 from trajectory import SvgTrajectory
 from writing_plan import TimedWritingPlan
 from workcells import WRITING_STUDIO
@@ -124,9 +125,18 @@ class WritingExperiment:
 
         self.mechanics = FrankaMechanics()
 
-        self.trajectory = SvgTrajectory(
-            self.config.svg_file
+        # Writing input source: DrawingDocument (v1.1) or
+        # legacy SVG trajectory (v1.0).
+        self._drawing: DrawingDocument | None = (
+            self.config.drawing
         )
+
+        self.trajectory: SvgTrajectory | None = None
+
+        if self._drawing is None:
+            self.trajectory = SvgTrajectory(
+                self.config.svg_file
+            )
 
     @property
     def stop_requested(self) -> bool:
@@ -178,11 +188,26 @@ class WritingExperiment:
             ),
         )
 
-        nominal_pen_tip_waypoints_m = (
-            fit_xy_path_to_surface(
+        # Produce pen-tip waypoints from the active input source.
+        if self._drawing is not None:
+            raw_pen_tip_waypoints_m = (
+                drawing_to_waypoints(
+                    self._drawing,
+                    surface_height_m=(
+                        contact_parameters.surface_height_m
+                    ),
+                )
+            )
+        else:
+            raw_pen_tip_waypoints_m = (
                 legacy_positions_to_pen_tip(
                     self.trajectory.positions_m
-                ),
+                )
+            )
+
+        nominal_pen_tip_waypoints_m = (
+            fit_xy_path_to_surface(
+                raw_pen_tip_waypoints_m,
                 surface_size_m=(
                     WRITING_STUDIO.notebook.size_m[:2]
                 ),
@@ -1245,7 +1270,9 @@ class WritingExperiment:
             )
 
             summary["trajectory"] = (
-                self.trajectory.metadata()
+                self._drawing.metadata()
+                if self._drawing is not None
+                else self.trajectory.metadata()
             )
 
             summary["writing_plan"] = {
