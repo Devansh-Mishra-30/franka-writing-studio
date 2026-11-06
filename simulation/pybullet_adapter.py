@@ -623,20 +623,29 @@ class PyBulletAdapter:
             physicsClientId=self.client_id
         )
 
+    def stop_video_recording(self) -> None:
+        """Finalize an active PyBullet video without closing the GUI."""
+        if (
+            self.client_id is None
+            or self.video_log_id is None
+        ):
+            return
+
+        try:
+            p.stopStateLogging(
+                self.video_log_id,
+                physicsClientId=self.client_id,
+            )
+        finally:
+            self.video_log_id = None
+
     def shutdown(self) -> None:
         if self.client_id is None:
             return
 
         client_id = self.client_id
 
-        if self.video_log_id is not None:
-            try:
-                p.stopStateLogging(
-                    self.video_log_id,
-                    physicsClientId=client_id,
-                )
-            finally:
-                self.video_log_id = None
+        self.stop_video_recording()
 
         if p.isConnected(
             physicsClientId=client_id

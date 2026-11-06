@@ -36,6 +36,11 @@ class ExperimentConfig:
     )
     realtime: bool = False
     record_video: bool = False
+
+    # GUI/demo runs may retain the simulator after successful
+    # completion so the final scene can be inspected.
+    keep_simulator_open: bool = False
+
     seed: int = 0
 
     speed_scale: float = 1.0
@@ -106,6 +111,14 @@ class ExperimentConfig:
         if self.record_video and self.mode != "gui":
             raise ValueError(
                 "--record-video requires --mode gui"
+            )
+
+        if (
+            self.keep_simulator_open
+            and self.mode != "gui"
+        ):
+            raise ValueError(
+                "keep_simulator_open requires mode='gui'"
             )
 
         return self

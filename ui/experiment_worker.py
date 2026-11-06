@@ -38,6 +38,7 @@ class ExperimentWorker(QObject):
         full_plan: bool,
         duration_s: float = 10.0,
         record_video: bool = False,
+        keep_simulator_open: bool = False,
     ) -> None:
         super().__init__()
 
@@ -55,6 +56,7 @@ class ExperimentWorker(QObject):
         self.full_plan = full_plan
         self.duration_s = duration_s
         self.record_video = record_video
+        self.keep_simulator_open = keep_simulator_open
 
         self.robot: RobotInterface | None = None
 
@@ -75,6 +77,10 @@ class ExperimentWorker(QObject):
                 realtime=self.show_robot,
                 record_video=(
                     self.record_video
+                    and self.show_robot
+                ),
+                keep_simulator_open=(
+                    self.keep_simulator_open
                     and self.show_robot
                 ),
                 speed_scale=self.speed_scale,

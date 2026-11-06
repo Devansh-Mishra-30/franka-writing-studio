@@ -373,6 +373,10 @@ class RobotInterface:
 
         return self.status
 
+    def shutdown_simulator(self) -> None:
+        """Release retained simulation resources without changing state."""
+        self._task.shutdown_simulator()
+
     # --------------------------------------------------------
     # Telemetry → authoritative status
     # --------------------------------------------------------

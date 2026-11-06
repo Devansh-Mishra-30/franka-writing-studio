@@ -124,6 +124,10 @@ class WritingExperiment:
 
         self.mechanics = FrankaMechanics()
 
+        # Runtime simulator ownership. GUI/demo mode can retain a
+        # successfully completed PyBullet scene for inspection.
+        self._simulator: PyBulletAdapter | None = None
+
         # Normalize every supported input at the application boundary.
         # Planning, validation, and execution never need to know whether
         # the drawing came from SVG or the dashboard.
@@ -150,6 +154,16 @@ class WritingExperiment:
         """Clear cancellation state when explicitly resetting the task."""
 
         self._stop_event.clear()
+
+    def shutdown_simulator(self) -> None:
+        """Release a retained PyBullet runtime, if one exists."""
+        simulator = self._simulator
+
+        if simulator is None:
+            return
+
+        simulator.shutdown()
+        self._simulator = None
 
     def build_plan(
         self,
@@ -288,7 +302,11 @@ class WritingExperiment:
             record_video=self.config.record_video,
         )
 
+        # A previous retained GUI scene must never leak into a new run.
+        self.shutdown_simulator()
+
         simulator = PyBulletAdapter(settings)
+        self._simulator = simulator
 
         rows: list[dict[str, Any]] = []
 
@@ -318,6 +336,7 @@ class WritingExperiment:
 
         setup_start = time.perf_counter()
         run_start: float | None = None
+        completed_successfully = False
 
         try:
             simulator.configure()
@@ -1557,6 +1576,8 @@ class WritingExperiment:
             if failure_path.exists():
                 failure_path.unlink()
 
+            completed_successfully = True
+
             return ExperimentResult(
                 samples_path=samples_path,
                 summary_path=summary_path,
@@ -1632,4 +1653,18 @@ class WritingExperiment:
             raise
 
         finally:
-            simulator.shutdown()
+            retain_simulator = (
+                completed_successfully
+                and self.config.mode == "gui"
+                and self.config.keep_simulator_open
+            )
+
+            if retain_simulator:
+                # The execution video should end at COMPLETE even though
+                # the final PyBullet scene remains available for inspection.
+                simulator.stop_video_recording()
+            else:
+                simulator.shutdown()
+
+                if self._simulator is simulator:
+                    self._simulator = None

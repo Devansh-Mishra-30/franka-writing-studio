@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from robot import RobotState
+from robot import RobotInterface, RobotState
 from ui.command_center import CommandCenter
 from ui.drawing_pad import DrawingPadWidget
 from ui.experiment_worker import ExperimentWorker
@@ -52,6 +52,10 @@ class LiveCommandCenter(CommandCenter):
 
         self.worker_thread: QThread | None = None
         self.worker: ExperimentWorker | None = None
+
+        # A completed GUI run may retain its PyBullet scene even after
+        # the worker QObject/thread are cleaned up.
+        self._retained_robot: RobotInterface | None = None
 
         self._configure_live_controls()
         self._clear_live_data()
@@ -463,6 +467,8 @@ class LiveCommandCenter(CommandCenter):
             )
             return
 
+        self._close_retained_simulator()
+
         self._clear_live_data()
         self._input_mode_changed(
             self.input_tabs.currentIndex()
@@ -477,6 +483,8 @@ class LiveCommandCenter(CommandCenter):
                 "Experiment already running"
             )
             return
+
+        self._close_retained_simulator()
 
         drawing = None
         svg_file = None
@@ -538,6 +546,7 @@ class LiveCommandCenter(CommandCenter):
             full_plan=full_plan,
             duration_s=5.5,
             record_video=record_video,
+            keep_simulator_open=show_robot,
         )
 
         self.worker.moveToThread(
@@ -1135,6 +1144,12 @@ class LiveCommandCenter(CommandCenter):
             True
         )
 
+        if (
+            self.worker is not None
+            and self.worker.robot is not None
+        ):
+            self._retained_robot = self.worker.robot
+
         if self.worker is not None:
             self.worker.deleteLater()
 
@@ -1146,6 +1161,16 @@ class LiveCommandCenter(CommandCenter):
         self.load_button.setEnabled(
             self.input_tabs.currentIndex() == 1
         )
+
+    def _close_retained_simulator(self) -> None:
+        """Close the final retained PyBullet scene, if present."""
+        robot = self._retained_robot
+
+        if robot is None:
+            return
+
+        robot.shutdown_simulator()
+        self._retained_robot = None
 
     def closeEvent(
         self,
@@ -1162,6 +1187,8 @@ class LiveCommandCenter(CommandCenter):
 
             event.ignore()
             return
+
+        self._close_retained_simulator()
 
         super().closeEvent(
             event

@@ -354,12 +354,17 @@ class WritingStudioTask:
 
         self._experiment.request_stop()
 
+    def shutdown_simulator(self) -> None:
+        """Release a retained simulator runtime."""
+        self._experiment.shutdown_simulator()
+
     def reset(self) -> None:
         """Return the task to its initial lifecycle state."""
 
         self._planning_result = None
         self._validation_report = None
 
+        self._experiment.shutdown_simulator()
         self._experiment.clear_stop_request()
 
         self._status = TaskStatus.IDLE
