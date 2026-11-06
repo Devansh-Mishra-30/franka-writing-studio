@@ -7,8 +7,10 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+import imageio.v2 as imageio
 
-from PySide6.QtCore import QThread
+from PySide6.QtCore import QThread, QTimer
+from PySide6.QtGui import QImage
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -60,6 +62,18 @@ class LiveCommandCenter(CommandCenter):
         # Camera composition used for the next GUI run and for
         # preset resets during an active/retained simulation.
         self._selected_camera_preset = "isometric"
+
+        # Engineering-telemetry video capture runs entirely on the
+        # Qt GUI side. The 1 kHz robotics/simulation loop remains
+        # isolated in its worker thread.
+        self._telemetry_video_writer = None
+        self._telemetry_video_path: Path | None = None
+
+        self._telemetry_record_timer = QTimer(self)
+        self._telemetry_record_timer.setInterval(50)  # 20 FPS
+        self._telemetry_record_timer.timeout.connect(
+            self._capture_telemetry_frame
+        )
 
         self._configure_live_controls()
         self._clear_live_data()
@@ -182,6 +196,30 @@ class LiveCommandCenter(CommandCenter):
             1,
             2,
         )
+
+        self.telemetry_record_checkbox = QCheckBox(
+            "Record engineering telemetry"
+        )
+        self.telemetry_record_checkbox.setChecked(
+            False
+        )
+
+        experiment_layout.addWidget(
+            self.telemetry_record_checkbox,
+            7,
+            0,
+            1,
+            2,
+        )
+
+        self.record_checkbox.toggled.connect(
+            self._update_live_recording_label
+        )
+        self.telemetry_record_checkbox.toggled.connect(
+            self._update_live_recording_label
+        )
+
+        self._update_live_recording_label()
 
         run_box = self.run_button.parentWidget()
         controls_panel = run_box.parentWidget()
@@ -483,6 +521,149 @@ class LiveCommandCenter(CommandCenter):
             self.status_label.setText(
                 "PyBullet camera is not ready"
             )
+
+    def _update_live_recording_label(self) -> None:
+        """Show exactly which visual streams will be recorded."""
+        pybullet_state = (
+            "ON"
+            if self.record_checkbox.isChecked()
+            else "OFF"
+        )
+
+        telemetry_state = (
+            "ON"
+            if self.telemetry_record_checkbox.isChecked()
+            else "OFF"
+        )
+
+        self.recording_label.setText(
+            "Recording — "
+            f"PyBullet: {pybullet_state} | "
+            f"Telemetry: {telemetry_state}"
+        )
+
+    def _start_telemetry_recording(
+        self,
+        output_dir: Path,
+    ) -> None:
+        """Start 20 FPS capture of the engineering-telemetry window."""
+        self._stop_telemetry_recording()
+
+        output_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        path = output_dir / "telemetry.mp4"
+
+        self._telemetry_video_writer = imageio.get_writer(
+            path,
+            fps=20,
+            codec="libx264",
+            pixelformat="yuv420p",
+            macro_block_size=2,
+        )
+
+        self._telemetry_video_path = path
+
+        # Capture immediately rather than waiting one timer interval.
+        self._capture_telemetry_frame()
+        self._telemetry_record_timer.start()
+
+        self._update_live_recording_label()
+
+    def _capture_telemetry_frame(self) -> None:
+        """Capture one rendered telemetry-window frame."""
+        writer = self._telemetry_video_writer
+
+        if writer is None:
+            return
+
+        try:
+            pixmap = self.telemetry_window.grab()
+
+            image = (
+                pixmap
+                .toImage()
+                .convertToFormat(
+                    QImage.Format_RGBA8888
+                )
+            )
+
+            width = image.width()
+            height = image.height()
+            bytes_per_line = image.bytesPerLine()
+
+            raw = np.frombuffer(
+                image.bits(),
+                dtype=np.uint8,
+                count=(
+                    height
+                    * bytes_per_line
+                ),
+            )
+
+            rgba = (
+                raw
+                .reshape(
+                    height,
+                    bytes_per_line,
+                )[
+                    :,
+                    : width * 4
+                ]
+                .reshape(
+                    height,
+                    width,
+                    4,
+                )
+            )
+
+            rgb = np.ascontiguousarray(
+                rgba[:, :, :3]
+            )
+
+            # yuv420p requires even frame dimensions.
+            pad_height = height % 2
+            pad_width = width % 2
+
+            if pad_height or pad_width:
+                rgb = np.pad(
+                    rgb,
+                    (
+                        (0, pad_height),
+                        (0, pad_width),
+                        (0, 0),
+                    ),
+                    mode="edge",
+                )
+
+            writer.append_data(
+                rgb
+            )
+
+        except Exception as error:
+            print(
+                "Telemetry recording failed: "
+                f"{error}",
+                file=sys.stderr,
+            )
+            self._stop_telemetry_recording()
+
+    def _stop_telemetry_recording(self) -> Path | None:
+        """Finalize the engineering-telemetry MP4."""
+        self._telemetry_record_timer.stop()
+
+        writer = self._telemetry_video_writer
+        path = self._telemetry_video_path
+
+        self._telemetry_video_writer = None
+        self._telemetry_video_path = None
+
+        if writer is not None:
+            writer.close()
+
+        return path
 
     def _build_input_panel(self) -> QGroupBox:
         panel = QGroupBox("INPUT")
@@ -830,6 +1011,29 @@ class LiveCommandCenter(CommandCenter):
             "artifacts/live_runs"
         ) / timestamp
 
+        self._stop_telemetry_recording()
+
+        if self.telemetry_record_checkbox.isChecked():
+            try:
+                self._start_telemetry_recording(
+                    output_dir
+                )
+            except Exception as error:
+                self.telemetry_record_checkbox.setChecked(
+                    False
+                )
+
+                self.status_label.setText(
+                    "Telemetry recording unavailable — "
+                    f"{error}"
+                )
+
+                print(
+                    "Telemetry recording start failed: "
+                    f"{error}",
+                    file=sys.stderr,
+                )
+
         speed_scale = (
             self.speed_slider.value()
             / 100.0
@@ -941,6 +1145,14 @@ class LiveCommandCenter(CommandCenter):
         )
 
         self.full_plan_checkbox.setEnabled(
+            False
+        )
+
+        self.keep_simulator_open_checkbox.setEnabled(
+            False
+        )
+
+        self.telemetry_record_checkbox.setEnabled(
             False
         )
 
@@ -1429,6 +1641,19 @@ class LiveCommandCenter(CommandCenter):
     def _thread_finished(
         self,
     ) -> None:
+        # Capture the terminal dashboard state before finalizing
+        # the telemetry video.
+        self._capture_telemetry_frame()
+        telemetry_path = (
+            self._stop_telemetry_recording()
+        )
+
+        if telemetry_path is not None:
+            print(
+                "Telemetry video: "
+                f"{telemetry_path}"
+            )
+
         self.stop_button.setEnabled(
             False
         )
@@ -1459,6 +1684,14 @@ class LiveCommandCenter(CommandCenter):
         )
 
         self.full_plan_checkbox.setEnabled(
+            True
+        )
+
+        self.keep_simulator_open_checkbox.setEnabled(
+            True
+        )
+
+        self.telemetry_record_checkbox.setEnabled(
             True
         )
 
@@ -1506,6 +1739,7 @@ class LiveCommandCenter(CommandCenter):
             event.ignore()
             return
 
+        self._stop_telemetry_recording()
         self._close_retained_simulator()
 
         super().closeEvent(
