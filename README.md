@@ -39,7 +39,7 @@ Launch the interactive command center:
 ./wr ui
 ```
 
-The dashboard opens in **DRAW** mode. Draw with a mouse, touchscreen, or stylus; each pointer gesture becomes a separate pen stroke. **Undo Last Stroke** and **Clear** are available before execution.
+The dashboard opens in **DRAW** mode. Draw with mouse/pointer input; each gesture becomes a separate pen stroke. **Undo Last Stroke** and **Clear** are available before execution.
 
 For the full visual demo:
 

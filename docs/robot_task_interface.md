@@ -34,7 +34,7 @@ INIT → HOMING → READY → PLANNING → VALIDATING → EXECUTING → COMPLETE
 | `INIT` | Interface exists but the robot is not ready for a writing command |
 | `HOMING` | Robot is moving to the defined collision-free home configuration |
 | `READY` | Robot can accept `START_WRITING` |
-| `PLANNING` | SVG waypoints are being converted into a timed writing plan |
+| `PLANNING` | Normalized drawing input is being converted into a timed writing plan |
 | `VALIDATING` | Workspace, reachability, and collision preflight checks are running |
 | `EXECUTING` | The validated plan is being executed |
 | `COMPLETE` | Writing completed successfully |

@@ -323,6 +323,6 @@ It does not support claims of:
 - Physical pen rigidly attached to `fer_link8`
 - Velocity-level normal-force admittance rather than torque impedance
 - Sampled collision preflight rather than continuous collision checking
-- No camera, calibration, or perception
+- No perception sensors or vision pipeline, physical calibration, or work-object registration
 - No physical I/O, ROS 2, or PLC adapter
 - No safety PLC, guarding, certified E-stop chain, STO, SS1, or SLS validation
