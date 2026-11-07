@@ -5,6 +5,82 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-blue.svg)](Dockerfile)
 [![Release](https://img.shields.io/github/v/release/Devansh-Mishra-30/franka-writing-studio)](https://github.com/Devansh-Mishra-30/franka-writing-studio/releases/latest)
 
+## Visual Preview
+
+<p align="center">
+  <strong>From drawing input to physics-based robotic writing</strong>
+  <br>
+  <sub>
+    Trajectory planning · Differential IK · Hybrid position/force control ·
+    Simulation verification
+  </sub>
+</p>
+
+<p align="center">
+  <a href="https://devanshportfolio.bubbleapps.io/version-test/project-1">
+    <img src="docs/media/results/writing_path_tracking.png"
+         alt="Franka desired and simulated writing trajectories"
+         width="800">
+  </a>
+</p>
+
+<p align="center">
+  <sub>
+    Historical v1.0 canonical simulation: desired versus simulated writing path.
+  </sub>
+</p>
+
+### Engineering Results
+
+<table>
+<tr>
+<td width="50%" align="center">
+  <img src="docs/media/results/writing_force_control.png"
+       alt="Franka simulated normal-force tracking"
+       width="100%">
+  <br>
+  <strong>Normal Force Tracking</strong>
+</td>
+<td width="50%" align="center">
+  <img src="docs/media/results/xy_tracking_error.png"
+       alt="Franka simulated Cartesian XY tracking error"
+       width="100%">
+  <br>
+  <strong>Cartesian Tracking Error</strong>
+</td>
+</tr>
+</table>
+
+> **Figure provenance:** These figures come from the historical v1.0
+> canonical SVG experiment. The newer v1.1.0 implementation adds interactive
+> drawing, engineering telemetry, enhanced visualization, and video recording.
+> Refer to the release verification section below for the v1.1.0 metrics.
+
+### Explore Franka Writing Studio
+
+**[Portfolio Case Study](https://devanshportfolio.bubbleapps.io/version-test/project-1)**
+&nbsp; | &nbsp;
+**[Latest Release — v1.1.0](https://github.com/Devansh-Mishra-30/franka-writing-studio/releases/tag/v1.1.0)**
+&nbsp; | &nbsp;
+**[Architecture](docs/architecture.md)**
+&nbsp; | &nbsp;
+**[Validation](docs/validation.md)**
+
+### Published v1.1.0 Highlights
+
+| Engineering area | Result |
+| --- | --- |
+| **Robot** | 7-DoF Franka simulation |
+| **Inputs** | Interactive freehand drawing and SVG |
+| **Control** | Cartesian tracking and normal-force admittance |
+| **Motion generation** | Minimum-jerk trajectories and differential IK |
+| **Automated verification** | 181 tests passed |
+| **Simulated WRITE XY RMSE** | 0.0685 mm |
+| **Simulated contact rate** | 100% |
+| **Release** | v1.1.0 |
+
+---
+
 ## Overview
 
 Franka Writing Studio is a simulation-only robotics application for a 7-DoF Franka robot. A user can draw directly in the PySide6 dashboard or provide supported SVG geometry. Both inputs are normalized into a common `DrawingDocument`, converted into pen-tip waypoints, placed inside the modeled notebook, planned, validated, and executed in PyBullet.
