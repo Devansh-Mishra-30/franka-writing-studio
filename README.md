@@ -194,11 +194,8 @@ Canonical release experiment:
 
 These are deterministic simulation results, not physical-robot accuracy claims.
 
-![Desired and simulated writing path](docs/media/results/writing_path_tracking.png)
-
-![Writing-force tracking](docs/media/results/writing_force_control.png)
-
-![XY tracking error](docs/media/results/xy_tracking_error.png)
+The historical writing-path, force-control, and XY-error plots are
+displayed in the [Visual Preview](#visual-preview) above.
 
 ![Execution phases](docs/media/results/execution_phases.png)
 
